@@ -1,0 +1,30 @@
+# Frontend
+Frontend/node_modules/
+Frontend/dist/
+Frontend/.tanstack/
+Frontend/.vite/
+Frontend/.cache/
+
+# Backend
+Backend/node_modules/
+Backend/dist/
+Backend/.cache/
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+Frontend/.env
+Frontend/.env.local
+Backend/.env
+Backend/.env.local
+
+# Logs
+*.log
+npm-debug.log*
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

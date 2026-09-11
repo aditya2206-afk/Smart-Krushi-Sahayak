@@ -1,0 +1,1943 @@
+import { useMemo, useState } from "react";
+import { Link, useNavigate, useSearch } from "@tanstack/react-router";
+import {
+  ArrowLeft,
+  BadgeCheck,
+  Bookmark,
+  Heart,
+  IndianRupee,
+  Leaf,
+  MapPin,
+  MessageSquare,
+  Package,
+  Phone,
+  Receipt,
+  Search,
+  ShoppingBag,
+  Sprout,
+  Star,
+  TrendingUp,
+  Users,
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { toast } from "sonner";
+import {
+  EmptyState,
+  PageHeader,
+  SectionCard,
+  StatCard,
+  StatusBadge,
+  TrendBadge,
+  trendOf,
+} from "@/components/skl/common";
+import { inr, useStore } from "@/lib/skl/store";
+import {
+  SELLER_PROFILES,
+  MARKETS,
+  MARKET_PRICE_BOARD,
+  PRODUCE_CATEGORIES,
+  type Order,
+  type OrderStatus,
+  type Product,
+} from "@/lib/skl/data";
+import { t } from "@/lib/skl/i18n";
+
+export const BUYER = "Mahesh Traders";
+const BUYER_TYPE = "Wholesaler";
+const BUYER_MOBILE = "98220 44112";
+const BUYER_ADDRESS = "Market Yard, Solapur, Maharashtra - 413001";
+
+const DELIVERY_OPTIONS = ["Pickup", "Seller Delivery", "Buyer Transport"];
+const PAYMENT_OPTIONS = ["Cash on Delivery", "Pay on Pickup", "UPI", "Online Payment"];
+const SORTS = [
+  "Price: Low to High",
+  "Price: High to Low",
+  "Newest",
+  "Highest Rated",
+  "Nearest Seller",
+];
+const ORDER_FLOW: OrderStatus[] = [
+  "New",
+  "Confirmed",
+  "Packed",
+  "Ready for Pickup",
+  "Out for Delivery",
+  "Completed",
+];
+
+function unitPrice(price: number, unit: string) {
+  return `${inr(price)}/${t(unit)}`;
+}
+
+function useAppSearch() {
+  return useSearch({ from: "/app/$" }) as { filter?: string; use?: string };
+}
+
+function sellerOf(name: string) {
+  return SELLER_PROFILES.find((f) => f.name === name);
+}
+
+function priceGap(p: Product) {
+  const diff = p.price - p.marketPrice;
+  const label =
+    diff === 0
+      ? t("At Market")
+      : diff > 0
+        ? `${inr(Math.abs(diff))} ${t("above market")}`
+        : `${inr(Math.abs(diff))} ${t("below market")}`;
+  return { diff, label };
+}
+
+/* ------------------------------------------------------------------ buy now */
+
+function BuyNowDialog({ product, onClose }: { product: Product | null; onClose: () => void }) {
+  const { placeOrder } = useStore();
+  const navigate = useNavigate();
+  const [qty, setQty] = useState("");
+  const [delivery, setDelivery] = useState(DELIVERY_OPTIONS[0]!);
+  const [payment, setPayment] = useState(PAYMENT_OPTIONS[0]!);
+  const [address, setAddress] = useState(BUYER_ADDRESS);
+  const [placed, setPlaced] = useState<Order | null>(null);
+
+  if (!product) return null;
+  const quantity = Number(qty || product.minOrder);
+  const subtotal = quantity * product.price;
+  const deliveryCharge = delivery === "Seller Delivery" ? 100 : 0;
+  const total = subtotal + deliveryCharge;
+
+  const confirm = () => {
+    if (!Number.isFinite(quantity) || quantity <= 0) {
+      toast.error(t("Enter a valid quantity."));
+      return;
+    }
+    if (quantity < product.minOrder) {
+      toast.error(`${t("Minimum Order Quantity")}: ${product.minOrder} ${t(product.unit)}`);
+      return;
+    }
+    if (quantity > product.stock) {
+      toast.error(
+        `${t("Only")} ${product.stock} ${t(product.unit)} ${t("is currently available.")}`,
+      );
+      return;
+    }
+    const id = placeOrder({
+      seller: product.seller,
+      buyer: BUYER,
+      buyerType: BUYER_TYPE,
+      items: [
+        {
+          productId: product.id,
+          name: product.name,
+          qty: quantity,
+          price: product.price,
+          unit: product.unit,
+        },
+      ],
+      total,
+      address,
+      mobile: BUYER_MOBILE,
+      payment,
+      fulfilment: delivery === "Seller Delivery" ? "Delivery" : "Pickup",
+      date: "21 Aug 2026",
+      status: "New",
+    });
+    setPlaced({
+      id,
+      seller: product.seller,
+      buyer: BUYER,
+      buyerType: BUYER_TYPE,
+      items: [
+        {
+          productId: product.id,
+          name: product.name,
+          qty: quantity,
+          price: product.price,
+          unit: product.unit,
+        },
+      ],
+      total,
+      address,
+      mobile: BUYER_MOBILE,
+      payment,
+      fulfilment: delivery === "Seller Delivery" ? "Delivery" : "Pickup",
+      date: "21 Aug 2026",
+      status: "New",
+    });
+  };
+
+  return (
+    <Dialog open onOpenChange={onClose}>
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
+        {placed ? (
+          <>
+            <DialogHeader>
+              <DialogTitle>{t("Order placed successfully.")}</DialogTitle>
+              <DialogDescription>
+                {t("The seller has been notified about your order.")}
+              </DialogDescription>
+            </DialogHeader>
+            <dl className="grid grid-cols-2 gap-3 text-sm">
+              <Row label={t("Order ID")} value={placed.id} />
+              <Row label={t("Product")} value={t(product.name)} />
+              <Row label={t("Quantity")} value={`${quantity} ${t(product.unit)}`} />
+              <Row label={t("Seller")} value={product.seller} />
+              <Row label={t("Total")} value={inr(total)} />
+              <Row label={t("Delivery Method")} value={t(delivery)} />
+              <Row label={t("Order Status")} value={t("New")} />
+            </dl>
+            <DialogFooter className="flex-wrap gap-2">
+              <Button variant="outline" onClick={onClose}>
+                {t("Continue Shopping")}
+              </Button>
+              <Button
+                onClick={() => {
+                  onClose();
+                  navigate({ to: "/app/$", params: { _splat: "buyer/orders" } });
+                }}
+              >
+                {t("View Order")}
+              </Button>
+            </DialogFooter>
+          </>
+        ) : (
+          <>
+            <DialogHeader>
+              <DialogTitle>
+                {t("Checkout")} — {t(product.name)}
+              </DialogTitle>
+              <DialogDescription>{t("Review your order before confirming.")}</DialogDescription>
+            </DialogHeader>
+            <dl className="grid grid-cols-2 gap-3 text-sm">
+              <Row label={t("Seller")} value={product.seller} />
+              <Row label={t("Seller Location")} value={t(product.location)} />
+              <Row label={t("Available Quantity")} value={`${product.stock} ${t(product.unit)}`} />
+              <Row label={t("Price Per Unit")} value={unitPrice(product.price, product.unit)} />
+              <Row label={t("Buyer")} value={BUYER} />
+              <Row label={t("Phone")} value={BUYER_MOBILE} />
+            </dl>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <Label htmlFor="buy-qty">
+                  {t("Quantity")} ({t(product.unit)})
+                </Label>
+                <Input
+                  id="buy-qty"
+                  className="mt-1.5"
+                  type="number"
+                  min={product.minOrder}
+                  max={product.stock}
+                  value={qty}
+                  placeholder={String(product.minOrder)}
+                  onChange={(e) => setQty(e.target.value)}
+                />
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {t("Minimum Order Quantity")}: {product.minOrder} {t(product.unit)}
+                </p>
+              </div>
+              <div>
+                <Label>{t("Delivery Type")}</Label>
+                <Select value={delivery} onValueChange={setDelivery}>
+                  <SelectTrigger className="mt-1.5 w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {DELIVERY_OPTIONS.map((d) => (
+                      <SelectItem key={d} value={d}>
+                        {t(d)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>{t("Payment Method")}</Label>
+                <Select value={payment} onValueChange={setPayment}>
+                  <SelectTrigger className="mt-1.5 w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {PAYMENT_OPTIONS.map((d) => (
+                      <SelectItem key={d} value={d}>
+                        {t(d)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="sm:col-span-2">
+                <Label>{t("Delivery Address")}</Label>
+                <Textarea
+                  className="mt-1.5"
+                  rows={2}
+                  maxLength={200}
+                  value={address}
+                  onChange={(e) => setAddress(e.target.value)}
+                />
+              </div>
+            </div>
+            <div className="space-y-2 rounded-xl bg-pale/60 p-3 text-sm">
+              <p className="font-semibold">{t("Order Summary")}</p>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">{t("Subtotal")}</span>
+                <span>{inr(subtotal)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">{t("Delivery Charge")}</span>
+                <span>{deliveryCharge === 0 ? t("Free") : inr(deliveryCharge)}</span>
+              </div>
+              <div className="flex justify-between border-t pt-2 font-bold text-forest">
+                <span>{t("Total")}</span>
+                <span>{inr(total)}</span>
+              </div>
+            </div>
+            <DialogFooter className="flex-wrap gap-2">
+              <Button variant="outline" onClick={onClose}>
+                {t("Cancel")}
+              </Button>
+              <Button onClick={confirm}>{t("Confirm Order")}</Button>
+            </DialogFooter>
+          </>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function Row({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <dt className="text-xs text-muted-foreground">{label}</dt>
+      <dd className="font-medium">{value}</dd>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ enquiry */
+
+function ContactSellerDialog({
+  product,
+  onClose,
+}: {
+  product: Product | null;
+  onClose: () => void;
+}) {
+  const { sendEnquiry } = useStore();
+  const [text, setText] = useState("");
+  if (!product) return null;
+  return (
+    <Dialog open onOpenChange={onClose}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>
+            {t("Contact Seller")} — {product.seller}
+          </DialogTitle>
+          <DialogDescription>
+            {t("Ask about quantity, quality or delivery before buying.")}
+          </DialogDescription>
+        </DialogHeader>
+        <Textarea
+          rows={4}
+          maxLength={300}
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          placeholder={t("Is 200 kg Tomato available tomorrow?")}
+        />
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            {t("Cancel")}
+          </Button>
+          <Button
+            onClick={() => {
+              if (!text.trim()) {
+                toast.error(t("Type your message"));
+                return;
+              }
+              sendEnquiry({
+                buyer: BUYER,
+                seller: product.seller,
+                product: product.name,
+                productId: product.id,
+                text: text.trim(),
+              });
+              toast.success(`${t("Enquiry sent to")} ${product.seller}`);
+              setText("");
+              onClose();
+            }}
+          >
+            {t("Send Enquiry")}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/* ------------------------------------------------------------------ dashboard */
+
+export function BuyerDashboard() {
+  const { products, orders, savedListings } = useStore();
+  const available = products.filter((p) => p.active && p.stock > 0);
+  const myOrders = orders.filter((o) => o.buyer === BUYER);
+  const activeOrders = myOrders.filter((o) => o.status !== "Completed" && o.status !== "Cancelled");
+  const recommended = available.slice(0, 8);
+  const [buy, setBuy] = useState<Product | null>(null);
+
+  return (
+    <>
+      <PageHeader
+        title={t("Buyer Dashboard")}
+        subtitle={t("Discover fresh agricultural produce and buy directly from sellers.")}
+        breadcrumb={[t("Buyer"), t("Dashboard")]}
+      />
+
+      <Card className="gap-0 overflow-hidden border-0 bg-gradient-to-r from-forest to-primary p-6 text-primary-foreground">
+        <h2 className="text-2xl font-bold">{t("Fresh produce directly from sellers")}</h2>
+        <p className="mt-1 max-w-2xl text-sm text-primary-foreground/85">
+          {t(
+            "Compare market prices, connect with sellers and purchase vegetables, fruits and crops directly.",
+          )}
+        </p>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <Link to="/app/$" params={{ _splat: "buyer/marketplace" }}>
+            <Button variant="secondary" className="gap-2">
+              <ShoppingBag className="size-4" /> {t("Browse Marketplace")}
+            </Button>
+          </Link>
+          <Link to="/app/$" params={{ _splat: "buyer/market-prices" }}>
+            <Button variant="secondary" className="gap-2">
+              <TrendingUp className="size-4" /> {t("Check Market Prices")}
+            </Button>
+          </Link>
+        </div>
+      </Card>
+
+      <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <Link to="/app/$" params={{ _splat: "buyer/marketplace" }}>
+          <StatCard
+            icon={Package}
+            label={t("Available Products")}
+            value={available.length}
+            hint={t("Open Marketplace")}
+          />
+        </Link>
+        <Link to="/app/$" params={{ _splat: "buyer/orders" }} search={{ filter: "active" }}>
+          <StatCard
+            icon={Receipt}
+            label={t("Active Orders")}
+            value={activeOrders.length}
+            hint={t("Track your orders")}
+            tone="harvest"
+          />
+        </Link>
+        <Link to="/app/$" params={{ _splat: "buyer/saved" }}>
+          <StatCard
+            icon={Bookmark}
+            label={t("Saved Products")}
+            value={savedListings.length}
+            hint={t("Your shortlist")}
+            tone="forest"
+          />
+        </Link>
+        <Link to="/app/$" params={{ _splat: "buyer/sellers" }}>
+          <StatCard
+            icon={Sprout}
+            label={t("Nearby Sellers")}
+            value={SELLER_PROFILES.length}
+            hint={t("Verified sellers")}
+            tone="forest"
+          />
+        </Link>
+      </div>
+
+      <SectionCard
+        title={t("Today's Market Prices")}
+        className="mt-4"
+        action={
+          <Link to="/app/$" params={{ _splat: "buyer/market-prices" }}>
+            <Button size="sm" variant="outline">
+              {t("View All Market Prices")}
+            </Button>
+          </Link>
+        }
+      >
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+          {MARKET_PRICE_BOARD.slice(0, 5).map((m) => (
+            <div key={m.id} className="rounded-xl border p-3">
+              <p className="text-sm font-medium">{t(m.product)}</p>
+              <p className="text-lg font-bold text-forest">
+                {inr(m.avg)}/{t(m.unit)}
+              </p>
+              <TrendBadge trend={trendOf(m.change)} change={m.change} />
+            </div>
+          ))}
+        </div>
+      </SectionCard>
+
+      <SectionCard
+        title={t("Recommended Produce")}
+        className="mt-4"
+        action={
+          <Link to="/app/$" params={{ _splat: "buyer/marketplace" }}>
+            <Button size="sm" variant="outline">
+              {t("View all")}
+            </Button>
+          </Link>
+        }
+      >
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          {recommended.map((p) => (
+            <ProduceCard key={p.id} product={p} onBuy={() => setBuy(p)} compact />
+          ))}
+        </div>
+      </SectionCard>
+
+      <BuyNowDialog product={buy} onClose={() => setBuy(null)} />
+    </>
+  );
+}
+
+/* ------------------------------------------------------------------ produce card */
+
+function ProduceCard({
+  product: p,
+  onBuy,
+  onContact,
+  compact,
+}: {
+  product: Product;
+  onBuy: () => void;
+  onContact?: () => void;
+  compact?: boolean;
+}) {
+  const { savedListings, toggleSavedListing } = useStore();
+  const saved = savedListings.includes(p.id);
+  const gap = priceGap(p);
+  const profile = sellerOf(p.seller);
+  return (
+    <Card className="group gap-0 overflow-hidden p-0">
+      <div className="relative">
+        <img
+          src={p.image}
+          alt={t(p.name)}
+          loading="lazy"
+          width={640}
+          height={360}
+          className="h-36 w-full object-cover transition-transform group-hover:scale-105"
+        />
+        <div className="absolute top-2 left-2 flex gap-1.5">
+          <Badge className="rounded-full">{t(p.category)}</Badge>
+          {p.organic && (
+            <Badge variant="secondary" className="rounded-full">
+              {t("Organic")}
+            </Badge>
+          )}
+        </div>
+        <button
+          type="button"
+          aria-label={saved ? t("Remove from saved") : t("Save Product")}
+          className="absolute top-2 right-2 grid size-8 place-items-center rounded-full bg-card/90"
+          onClick={() => {
+            toggleSavedListing(p.id);
+            toast.success(saved ? t("Removed from saved") : t("Saved for later"));
+          }}
+        >
+          <Heart
+            className={`size-4 ${saved ? "fill-destructive text-destructive" : "text-muted-foreground"}`}
+          />
+        </button>
+      </div>
+      <div className="p-4">
+        <div className="flex items-start justify-between gap-2">
+          <div>
+            <h3 className="font-semibold">{t(p.name)}</h3>
+            <p className="text-xs text-muted-foreground">
+              {t(p.variety)} • {t("Grade")} {p.grade}
+            </p>
+          </div>
+          <TrendBadge trend={p.trend} />
+        </div>
+        <p className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
+          <Sprout className="size-3.5" /> {p.seller}
+          {p.verified && <BadgeCheck className="size-3.5 text-primary" />}
+        </p>
+        <p className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
+          <MapPin className="size-3.5" /> {t(p.location)} • {t(p.market)}
+        </p>
+        <div className="mt-3 flex items-end justify-between">
+          <div>
+            <p className="text-lg font-bold text-forest">{unitPrice(p.price, p.unit)}</p>
+            <p className="text-xs text-muted-foreground">
+              {t("Market Price")}: {unitPrice(p.marketPrice, p.unit)}
+            </p>
+          </div>
+          <span className="flex items-center gap-1 text-xs text-muted-foreground">
+            <Star className="size-3.5 fill-harvest text-harvest" /> {profile?.rating ?? p.rating}
+          </span>
+        </div>
+        <p className="mt-2 text-xs text-muted-foreground">
+          {t("Available")}: {p.stock.toLocaleString("en-IN")} {t(p.unit)} • {gap.label}
+        </p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <Link to="/app/$" params={{ _splat: `buyer/marketplace/${p.id}` }} className="flex-1">
+            <Button variant="outline" className="w-full">
+              {t("View Details")}
+            </Button>
+          </Link>
+          <Button className="flex-1" disabled={p.stock <= 0} onClick={onBuy}>
+            {p.stock <= 0 ? t("Sold Out") : t("Buy Now")}
+          </Button>
+          {!compact && onContact && (
+            <Button variant="ghost" className="w-full gap-1.5" onClick={onContact}>
+              <MessageSquare className="size-4" /> {t("Contact Seller")}
+            </Button>
+          )}
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+/* ------------------------------------------------------------------ marketplace */
+
+export function BuyerMarketplace() {
+  const { products } = useStore();
+  const search = useAppSearch();
+  const [q, setQ] = useState(search.use ?? "");
+  const [cat, setCat] = useState("All");
+  const [location, setLocation] = useState("All");
+  const [market, setMarket] = useState("All");
+  const [grade, setGrade] = useState("All");
+  const [availability, setAvailability] = useState("All");
+  const [maxPrice, setMaxPrice] = useState("");
+  const [sort, setSort] = useState(SORTS[0]!);
+  const [buy, setBuy] = useState<Product | null>(null);
+  const [contact, setContact] = useState<Product | null>(null);
+
+  const locations = [...new Set(products.map((p) => p.location))];
+  const grades = [...new Set(products.map((p) => p.grade))];
+
+  const list = useMemo(() => {
+    const filtered = products.filter(
+      (p) =>
+        p.active &&
+        `${p.name} ${p.variety} ${p.seller} ${p.market}`.toLowerCase().includes(q.toLowerCase()) &&
+        (cat === "All" || p.category === cat) &&
+        (location === "All" || p.location === location) &&
+        (market === "All" || p.market === market) &&
+        (grade === "All" || p.grade === grade) &&
+        (availability === "All" || (availability === "Available" ? p.stock > 0 : p.stock <= 0)) &&
+        (!maxPrice || p.price <= Number(maxPrice)),
+    );
+    const sorted = [...filtered];
+    if (sort === "Price: Low to High") sorted.sort((a, b) => a.price - b.price);
+    if (sort === "Price: High to Low") sorted.sort((a, b) => b.price - a.price);
+    if (sort === "Highest Rated") sorted.sort((a, b) => b.rating - a.rating);
+    if (sort === "Newest") sorted.sort((a, b) => b.id.localeCompare(a.id));
+    if (sort === "Nearest Seller") sorted.sort((a, b) => a.location.localeCompare(b.location));
+    return sorted;
+  }, [products, q, cat, location, market, grade, availability, maxPrice, sort]);
+
+  const clear = () => {
+    setQ("");
+    setCat("All");
+    setLocation("All");
+    setMarket("All");
+    setGrade("All");
+    setAvailability("All");
+    setMaxPrice("");
+  };
+
+  return (
+    <>
+      <PageHeader
+        title={t("Produce Marketplace")}
+        subtitle={t("Buy vegetables, fruits, grains and crops directly from verified sellers.")}
+        breadcrumb={[t("Buyer"), t("Marketplace")]}
+        action={
+          <Badge variant="secondary" className="rounded-full">
+            {list.length} {t("results")}
+          </Badge>
+        }
+      />
+
+      <Card className="gap-0 p-4">
+        <div className="grid gap-3 lg:grid-cols-4">
+          <div className="relative lg:col-span-2">
+            <Search className="absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder={t("Search vegetables, fruits and crops...")}
+              className="pl-9"
+            />
+          </div>
+          <Pick
+            value={cat}
+            onChange={setCat}
+            options={["All", ...PRODUCE_CATEGORIES]}
+            label={t("Category")}
+          />
+          <Pick
+            value={location}
+            onChange={setLocation}
+            options={["All", ...locations]}
+            label={t("Location")}
+          />
+          <Pick
+            value={market}
+            onChange={setMarket}
+            options={["All", ...MARKETS]}
+            label={t("Market")}
+          />
+          <Pick value={grade} onChange={setGrade} options={["All", ...grades]} label={t("Grade")} />
+          <Pick
+            value={availability}
+            onChange={setAvailability}
+            options={["All", "Available", "Sold Out"]}
+            label={t("Availability")}
+          />
+          <div className="flex gap-2">
+            <Input
+              type="number"
+              value={maxPrice}
+              onChange={(e) => setMaxPrice(e.target.value)}
+              placeholder={t("Max price")}
+            />
+            <Pick value={sort} onChange={setSort} options={SORTS} label={t("Sort")} />
+          </div>
+        </div>
+        <div className="mt-3 flex items-center gap-3 text-xs text-muted-foreground">
+          <span>
+            {list.length} {t("produce listings match your filters")}
+          </span>
+          <Button size="sm" variant="ghost" onClick={clear}>
+            {t("Clear filters")}
+          </Button>
+        </div>
+      </Card>
+
+      {list.length === 0 ? (
+        <div className="mt-4">
+          <EmptyState
+            icon={ShoppingBag}
+            title={t("No produce found.")}
+            desc={t("Try another crop name, category or market.")}
+            action={<Button onClick={clear}>{t("Clear filters")}</Button>}
+          />
+        </div>
+      ) : (
+        <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          {list.map((p) => (
+            <ProduceCard
+              key={p.id}
+              product={p}
+              onBuy={() => setBuy(p)}
+              onContact={() => setContact(p)}
+            />
+          ))}
+        </div>
+      )}
+
+      <BuyNowDialog product={buy} onClose={() => setBuy(null)} />
+      <ContactSellerDialog product={contact} onClose={() => setContact(null)} />
+    </>
+  );
+}
+
+function Pick({
+  value,
+  onChange,
+  options,
+  label,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  options: string[];
+  label: string;
+}) {
+  return (
+    <Select value={value} onValueChange={onChange}>
+      <SelectTrigger className="w-full">
+        <SelectValue placeholder={label} />
+      </SelectTrigger>
+      <SelectContent>
+        {options.map((o) => (
+          <SelectItem key={o} value={o}>
+            {o === "All" ? `${t("All")} ${label}` : t(o)}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
+
+/* ------------------------------------------------------------------ product details */
+
+export function BuyerProductDetail({ productId }: { productId: string }) {
+  const { products, savedListings, toggleSavedListing } = useStore();
+  const product = products.find((p) => p.id === productId);
+  const [buy, setBuy] = useState<Product | null>(null);
+  const [contact, setContact] = useState<Product | null>(null);
+
+  if (!product) {
+    return (
+      <>
+        <PageHeader title={t("Produce Details")} breadcrumb={[t("Buyer"), t("Marketplace")]} />
+        <EmptyState
+          icon={Package}
+          title={t("No produce found.")}
+          desc={t("This listing is no longer available.")}
+          action={
+            <Link to="/app/$" params={{ _splat: "buyer/marketplace" }}>
+              <Button>{t("Back to Marketplace")}</Button>
+            </Link>
+          }
+        />
+      </>
+    );
+  }
+
+  const gap = priceGap(product);
+  const profile = sellerOf(product.seller);
+  const saved = savedListings.includes(product.id);
+  const board = MARKET_PRICE_BOARD.find((m) => m.product === product.name);
+
+  return (
+    <>
+      <PageHeader
+        title={t("Produce Details")}
+        subtitle={`${t(product.name)} • ${t(product.variety)}`}
+        breadcrumb={[t("Buyer"), t("Marketplace"), t(product.name)]}
+        action={
+          <Link to="/app/$" params={{ _splat: "buyer/marketplace" }}>
+            <Button variant="outline" className="gap-2">
+              <ArrowLeft className="size-4" /> {t("Back to Marketplace")}
+            </Button>
+          </Link>
+        }
+      />
+      <div className="grid gap-4 lg:grid-cols-3">
+        <Card className="gap-0 overflow-hidden p-0 lg:col-span-2">
+          <img src={product.image} alt={t(product.name)} className="h-64 w-full object-cover" />
+          <div className="p-5">
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="text-xl font-bold">{t(product.name)}</h2>
+              <Badge>{t(product.category)}</Badge>
+              <Badge variant="secondary">
+                {t("Grade")} {product.grade}
+              </Badge>
+              {product.organic && <Badge variant="outline">{t("Organic")}</Badge>}
+              <StatusBadge status={product.stock > 0 ? "Available" : "Sold Out"} />
+            </div>
+            <dl className="mt-4 grid grid-cols-2 gap-3 text-sm sm:grid-cols-3">
+              <Row label={t("Variety")} value={t(product.variety)} />
+              <Row label={t("Seller")} value={product.seller} />
+              <Row label={t("Seller Location")} value={t(product.location)} />
+              <Row label={t("Seller Rating")} value={`★ ${profile?.rating ?? product.rating}`} />
+              <Row label={t("Available Quantity")} value={`${product.stock} ${t(product.unit)}`} />
+              <Row label={t("Unit")} value={t(product.unit)} />
+              <Row
+                label={t("Minimum Order Quantity")}
+                value={`${product.minOrder} ${t(product.unit)}`}
+              />
+              <Row label={t("Harvest Date")} value={t(product.harvestDate)} />
+              <Row label={t("Available Until")} value={t(product.availableUntil)} />
+              <Row label={t("Market / Mandi")} value={t(product.market)} />
+              <Row
+                label={t("Quality")}
+                value={product.organic ? t("Organic") : t("Conventional")}
+              />
+            </dl>
+            <p className="mt-4 text-sm text-muted-foreground">{t(product.description)}</p>
+          </div>
+        </Card>
+
+        <div className="space-y-4">
+          <SectionCard title={t("Price Comparison")}>
+            <div className="space-y-2 text-sm">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">{t("Seller Price")}</span>
+                <span className="font-semibold text-forest">
+                  {unitPrice(product.price, product.unit)}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">{t("Current Market Price")}</span>
+                <span>{unitPrice(product.marketPrice, product.unit)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">{t("Difference")}</span>
+                <span>{gap.label}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">{t("Market")}</span>
+                <span>{t(product.market)}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">{t("Trend")}</span>
+                <TrendBadge trend={product.trend} {...(board ? { change: board.change } : {})} />
+              </div>
+            </div>
+            <Badge
+              className="mt-3 w-fit rounded-full"
+              variant={gap.diff > 0 ? "outline" : "default"}
+            >
+              {gap.diff === 0
+                ? t("At Market")
+                : gap.diff > 0
+                  ? t("Above Market")
+                  : t("Below Market")}
+            </Badge>
+          </SectionCard>
+
+          <SectionCard title={t("Actions")}>
+            <div className="grid gap-2">
+              <Button disabled={product.stock <= 0} onClick={() => setBuy(product)}>
+                {product.stock <= 0 ? t("Sold Out") : t("Buy Now")}
+              </Button>
+              <Button variant="outline" className="gap-2" onClick={() => setContact(product)}>
+                <MessageSquare className="size-4" /> {t("Contact Seller")}
+              </Button>
+              <Button
+                variant="ghost"
+                className="gap-2"
+                onClick={() => {
+                  toggleSavedListing(product.id);
+                  toast.success(saved ? t("Removed from saved") : t("Saved for later"));
+                }}
+              >
+                <Heart className={`size-4 ${saved ? "fill-destructive text-destructive" : ""}`} />{" "}
+                {saved ? t("Saved") : t("Save Product")}
+              </Button>
+              <Link to="/app/$" params={{ _splat: `buyer/sellers/${profile?.id ?? ""}` }}>
+                <Button variant="ghost" className="w-full gap-2">
+                  <Sprout className="size-4" /> {t("View Seller")}
+                </Button>
+              </Link>
+            </div>
+          </SectionCard>
+        </div>
+      </div>
+
+      <BuyNowDialog product={buy} onClose={() => setBuy(null)} />
+      <ContactSellerDialog product={contact} onClose={() => setContact(null)} />
+    </>
+  );
+}
+
+/* ------------------------------------------------------------------ orders */
+
+export function BuyerOrdersPage({ orderId }: { orderId?: string }) {
+  const { orders, products, cancelOrder, addReview } = useStore();
+  const search = useAppSearch();
+  const navigate = useNavigate();
+  const [status, setStatus] = useState(search.filter === "active" ? "Active" : "All");
+  const [detail, setDetail] = useState<Order | null>(null);
+  const [confirmCancel, setConfirmCancel] = useState<Order | null>(null);
+  const [review, setReview] = useState<Order | null>(null);
+  const [buy, setBuy] = useState<Product | null>(null);
+  const [rating, setRating] = useState("5");
+  const [text, setText] = useState("");
+
+  const mine = orders.filter((o) => o.buyer === BUYER);
+  const current = orderId ? mine.find((o) => o.id === orderId) : null;
+  const filters = ["All", "Active", ...ORDER_FLOW, "Cancelled"];
+  const list = mine.filter((o) =>
+    status === "All"
+      ? true
+      : status === "Active"
+        ? o.status !== "Completed" && o.status !== "Cancelled"
+        : o.status === status,
+  );
+
+  if (orderId) {
+    if (!current) {
+      return (
+        <>
+          <PageHeader title={t("Order Details")} breadcrumb={[t("Buyer"), t("Orders")]} />
+          <EmptyState
+            icon={Receipt}
+            title={t("No orders yet.")}
+            desc={t("This order could not be found.")}
+            action={
+              <Link to="/app/$" params={{ _splat: "buyer/orders" }}>
+                <Button>{t("My Orders")}</Button>
+              </Link>
+            }
+          />
+        </>
+      );
+    }
+    return (
+      <OrderDetailView
+        order={current}
+        onCancel={() => setConfirmCancel(current)}
+        confirmCancel={confirmCancel}
+        closeCancel={() => setConfirmCancel(null)}
+        doCancel={() => {
+          cancelOrder(current.id);
+          setConfirmCancel(null);
+          toast.success(t("Order cancelled"));
+        }}
+      />
+    );
+  }
+
+  return (
+    <>
+      <PageHeader
+        title={t("My Orders")}
+        subtitle={t("Track produce you have ordered from sellers.")}
+        breadcrumb={[t("Buyer"), t("Orders")]}
+        action={
+          <Link to="/app/$" params={{ _splat: "buyer/marketplace" }}>
+            <Button variant="outline" className="gap-2">
+              <ShoppingBag className="size-4" /> {t("Marketplace")}
+            </Button>
+          </Link>
+        }
+      />
+      <div className="mb-4 flex flex-wrap gap-2">
+        {filters.map((f) => (
+          <Button
+            key={f}
+            size="sm"
+            variant={status === f ? "default" : "outline"}
+            className="h-8 rounded-full text-xs"
+            onClick={() => setStatus(f)}
+          >
+            {t(f)}
+          </Button>
+        ))}
+      </div>
+
+      {list.length === 0 ? (
+        <EmptyState
+          icon={Receipt}
+          title={t("No orders yet.")}
+          desc={t("Your produce orders will appear here once you place them.")}
+          action={
+            <Link to="/app/$" params={{ _splat: "buyer/marketplace" }}>
+              <Button>{t("Browse Marketplace")}</Button>
+            </Link>
+          }
+        />
+      ) : (
+        <SectionCard title={t("Order History")}>
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{t("Order ID")}</TableHead>
+                  <TableHead>{t("Product")}</TableHead>
+                  <TableHead>{t("Seller")}</TableHead>
+                  <TableHead>{t("Quantity")}</TableHead>
+                  <TableHead>{t("Amount")}</TableHead>
+                  <TableHead>{t("Order Date")}</TableHead>
+                  <TableHead>{t("Delivery")}</TableHead>
+                  <TableHead>{t("Status")}</TableHead>
+                  <TableHead className="text-right">{t("Action")}</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {list.map((o) => (
+                  <TableRow key={o.id}>
+                    <TableCell className="font-medium">{o.id}</TableCell>
+                    <TableCell>{o.items.map((i) => t(i.name)).join(", ")}</TableCell>
+                    <TableCell>{o.seller}</TableCell>
+                    <TableCell>{o.items.map((i) => `${i.qty} ${t(i.unit)}`).join(", ")}</TableCell>
+                    <TableCell className="font-semibold text-forest">{inr(o.total)}</TableCell>
+                    <TableCell className="text-muted-foreground">{t(o.date)}</TableCell>
+                    <TableCell>{t(o.fulfilment)}</TableCell>
+                    <TableCell>
+                      <StatusBadge status={o.status} />
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Button size="sm" variant="outline" onClick={() => setDetail(o)}>
+                        {t("View")}
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        </SectionCard>
+      )}
+
+      {/* order detail dialog */}
+      <Dialog open={!!detail} onOpenChange={() => setDetail(null)}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>
+              {t("Order Details")} — {detail?.id}
+            </DialogTitle>
+          </DialogHeader>
+          {detail &&
+            (() => {
+              const live = orders.find((o) => o.id === detail.id) ?? detail;
+              const item = live.items[0]!;
+              const product = products.find((p) => p.id === item.productId);
+              const profile = sellerOf(live.seller);
+              const cancellable = live.status === "New" || live.status === "Confirmed";
+              return (
+                <>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <StatusBadge status={live.status} />
+                    <Badge variant="secondary">{t(live.fulfilment)}</Badge>
+                    <Badge variant="outline">{t(live.payment)}</Badge>
+                  </div>
+                  {product && (
+                    <img
+                      src={product.image}
+                      alt={t(item.name)}
+                      className="h-36 w-full rounded-xl object-cover"
+                    />
+                  )}
+                  <dl className="grid grid-cols-2 gap-3 text-sm">
+                    <Row label={t("Order Date")} value={t(live.date)} />
+                    <Row label={t("Product")} value={live.items.map((i) => t(i.name)).join(", ")} />
+                    <Row label={t("Seller")} value={live.seller} />
+                    <Row label={t("Seller Phone")} value={profile?.phone ?? live.mobile} />
+                    <Row label={t("Seller Location")} value={t(profile?.district ?? "Solapur")} />
+                    <Row label={t("Quantity")} value={`${item.qty} ${t(item.unit)}`} />
+                    <Row label={t("Unit Price")} value={unitPrice(item.price, item.unit)} />
+                    <Row label={t("Subtotal")} value={inr(item.qty * item.price)} />
+                    <Row
+                      label={t("Delivery Charge")}
+                      value={inr(Math.max(0, live.total - item.qty * item.price))}
+                    />
+                    <Row label={t("Total")} value={inr(live.total)} />
+                    <Row label={t("Payment Method")} value={t(live.payment)} />
+                    <Row
+                      label={t("Payment Status")}
+                      value={live.status === "Completed" ? t("Paid") : t("Pending")}
+                    />
+                    <Row label={t("Delivery Method")} value={t(live.fulfilment)} />
+                  </dl>
+                  <p className="text-sm text-muted-foreground">{live.address}</p>
+                  <div className="rounded-xl bg-pale/60 p-3 text-xs">
+                    <p className="mb-1 font-semibold">{t("Order Timeline")}</p>
+                    {ORDER_FLOW.map((s, i) => (
+                      <p
+                        key={s}
+                        className={
+                          ORDER_FLOW.indexOf(live.status) >= i
+                            ? "font-medium text-forest"
+                            : "text-muted-foreground"
+                        }
+                      >
+                        {ORDER_FLOW.indexOf(live.status) >= i ? "●" : "○"}{" "}
+                        {t(s === "New" ? "Order Placed" : s)}
+                      </p>
+                    ))}
+                    {live.status === "Cancelled" && (
+                      <p className="text-destructive">● {t("Cancelled")}</p>
+                    )}
+                  </div>
+                  <DialogFooter className="flex-wrap gap-2">
+                    <Button
+                      variant="outline"
+                      className="gap-2"
+                      onClick={() => toast.info(`${t("Calling")} ${live.seller} (demo)`)}
+                    >
+                      <Phone className="size-4" /> {t("Contact Seller")}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => toast.success(t("Receipt downloaded (demo)"))}
+                    >
+                      {t("Download Receipt")}
+                    </Button>
+                    {product && (
+                      <Button
+                        variant="outline"
+                        onClick={() => {
+                          setDetail(null);
+                          setBuy(product);
+                        }}
+                      >
+                        {t("Reorder")}
+                      </Button>
+                    )}
+                    {live.status === "Completed" && (
+                      <Button
+                        variant="outline"
+                        onClick={() => {
+                          setDetail(null);
+                          setReview(live);
+                        }}
+                      >
+                        {t("Write a Review")}
+                      </Button>
+                    )}
+                    {cancellable && (
+                      <Button
+                        variant="destructive"
+                        onClick={() => {
+                          setDetail(null);
+                          setConfirmCancel(live);
+                        }}
+                      >
+                        {t("Cancel Order")}
+                      </Button>
+                    )}
+                  </DialogFooter>
+                </>
+              );
+            })()}
+        </DialogContent>
+      </Dialog>
+
+      {/* cancel confirmation */}
+      <Dialog open={!!confirmCancel} onOpenChange={() => setConfirmCancel(null)}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>{t("Cancel Order")}</DialogTitle>
+            <DialogDescription>
+              {t("Are you sure you want to cancel this order?")}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmCancel(null)}>
+              {t("Keep Order")}
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                cancelOrder(confirmCancel!.id);
+                setConfirmCancel(null);
+                toast.success(t("Order cancelled"));
+              }}
+            >
+              {t("Cancel Order")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* review */}
+      <Dialog open={!!review} onOpenChange={() => setReview(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t("Write a Review")}</DialogTitle>
+          </DialogHeader>
+          <div>
+            <Label>{t("Rating")}</Label>
+            <Select value={rating} onValueChange={setRating}>
+              <SelectTrigger className="mt-1.5 w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {["5", "4", "3", "2", "1"].map((r) => (
+                  <SelectItem key={r} value={r}>
+                    {r} ★
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <Label>{t("Review")}</Label>
+            <Textarea
+              className="mt-1.5"
+              rows={3}
+              maxLength={300}
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              onClick={() => {
+                if (!text.trim()) {
+                  toast.error(t("Write a short review"));
+                  return;
+                }
+                addReview({
+                  buyer: BUYER,
+                  seller: review!.seller,
+                  product: review!.items[0]!.name,
+                  rating: Number(rating),
+                  quality: Number(rating),
+                  service: Number(rating),
+                  text: text.trim(),
+                  date: "21 Aug 2026",
+                });
+                setText("");
+                setReview(null);
+                toast.success(t("Thank you for your review."));
+              }}
+            >
+              {t("Submit Review")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <BuyNowDialog
+        product={buy}
+        onClose={() => {
+          setBuy(null);
+          navigate({ to: "/app/$", params: { _splat: "buyer/orders" } });
+        }}
+      />
+    </>
+  );
+}
+
+function OrderDetailView({
+  order,
+  onCancel,
+  confirmCancel,
+  closeCancel,
+  doCancel,
+}: {
+  order: Order;
+  onCancel: () => void;
+  confirmCancel: Order | null;
+  closeCancel: () => void;
+  doCancel: () => void;
+}) {
+  const item = order.items[0]!;
+  const profile = sellerOf(order.seller);
+  return (
+    <>
+      <PageHeader
+        title={`${t("Order Details")} — ${order.id}`}
+        breadcrumb={[t("Buyer"), t("Orders"), order.id]}
+        action={
+          <Link to="/app/$" params={{ _splat: "buyer/orders" }}>
+            <Button variant="outline" className="gap-2">
+              <ArrowLeft className="size-4" /> {t("My Orders")}
+            </Button>
+          </Link>
+        }
+      />
+      <div className="grid gap-4 lg:grid-cols-3">
+        <SectionCard title={t("Order Summary")} className="lg:col-span-2">
+          <dl className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-3">
+            <Row label={t("Product")} value={t(item.name)} />
+            <Row label={t("Seller")} value={order.seller} />
+            <Row label={t("Seller Phone")} value={profile?.phone ?? order.mobile} />
+            <Row label={t("Quantity")} value={`${item.qty} ${t(item.unit)}`} />
+            <Row label={t("Unit Price")} value={unitPrice(item.price, item.unit)} />
+            <Row label={t("Total")} value={inr(order.total)} />
+            <Row label={t("Payment Method")} value={t(order.payment)} />
+            <Row label={t("Delivery Method")} value={t(order.fulfilment)} />
+            <Row label={t("Order Status")} value={t(order.status)} />
+          </dl>
+          <p className="mt-3 text-sm text-muted-foreground">{order.address}</p>
+        </SectionCard>
+        <SectionCard title={t("Order Timeline")}>
+          {ORDER_FLOW.map((s, i) => (
+            <p
+              key={s}
+              className={`text-sm ${ORDER_FLOW.indexOf(order.status) >= i ? "font-medium text-forest" : "text-muted-foreground"}`}
+            >
+              {ORDER_FLOW.indexOf(order.status) >= i ? "●" : "○"}{" "}
+              {t(s === "New" ? "Order Placed" : s)}
+            </p>
+          ))}
+          {(order.status === "New" || order.status === "Confirmed") && (
+            <Button variant="destructive" className="mt-3" onClick={onCancel}>
+              {t("Cancel Order")}
+            </Button>
+          )}
+        </SectionCard>
+      </div>
+      <Dialog open={!!confirmCancel} onOpenChange={closeCancel}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>{t("Cancel Order")}</DialogTitle>
+            <DialogDescription>
+              {t("Are you sure you want to cancel this order?")}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={closeCancel}>
+              {t("Keep Order")}
+            </Button>
+            <Button variant="destructive" onClick={doCancel}>
+              {t("Cancel Order")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
+/* ------------------------------------------------------------------ saved */
+
+export function SavedProductsPage() {
+  const { products, savedListings, toggleSavedListing } = useStore();
+  const saved = products.filter((p) => savedListings.includes(p.id));
+  const [buy, setBuy] = useState<Product | null>(null);
+
+  return (
+    <>
+      <PageHeader
+        title={t("Saved Products")}
+        subtitle={t("Produce you shortlisted for later.")}
+        breadcrumb={[t("Buyer"), t("Saved Products")]}
+      />
+      {saved.length === 0 ? (
+        <EmptyState
+          icon={Bookmark}
+          title={t("No saved products yet.")}
+          desc={t("Tap the heart icon on any produce to save it here.")}
+          action={
+            <Link to="/app/$" params={{ _splat: "buyer/marketplace" }}>
+              <Button>{t("Browse Marketplace")}</Button>
+            </Link>
+          }
+        />
+      ) : (
+        <SectionCard title={`${saved.length} ${t("Saved Products")}`}>
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{t("Product")}</TableHead>
+                  <TableHead>{t("Seller")}</TableHead>
+                  <TableHead>{t("Location")}</TableHead>
+                  <TableHead>{t("Available Quantity")}</TableHead>
+                  <TableHead>{t("Seller Price")}</TableHead>
+                  <TableHead>{t("Market Price")}</TableHead>
+                  <TableHead>{t("Status")}</TableHead>
+                  <TableHead className="text-right">{t("Action")}</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {saved.map((p) => (
+                  <TableRow key={p.id}>
+                    <TableCell className="font-medium">{t(p.name)}</TableCell>
+                    <TableCell>{p.seller}</TableCell>
+                    <TableCell className="text-muted-foreground">{t(p.location)}</TableCell>
+                    <TableCell>
+                      {p.stock} {t(p.unit)}
+                    </TableCell>
+                    <TableCell className="font-semibold text-forest">
+                      {unitPrice(p.price, p.unit)}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {unitPrice(p.marketPrice, p.unit)}
+                    </TableCell>
+                    <TableCell>
+                      <StatusBadge status={p.stock > 0 ? "Available" : "Sold Out"} />
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex justify-end gap-2">
+                        <Link to="/app/$" params={{ _splat: `buyer/marketplace/${p.id}` }}>
+                          <Button size="sm" variant="outline">
+                            {t("View")}
+                          </Button>
+                        </Link>
+                        <Button size="sm" disabled={p.stock <= 0} onClick={() => setBuy(p)}>
+                          {t("Buy Now")}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="text-destructive"
+                          onClick={() => {
+                            toggleSavedListing(p.id);
+                            toast.success(t("Removed from saved"));
+                          }}
+                        >
+                          {t("Remove")}
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        </SectionCard>
+      )}
+      <BuyNowDialog product={buy} onClose={() => setBuy(null)} />
+    </>
+  );
+}
+
+/* ------------------------------------------------------------------ sellers */
+
+export function BuyerSellersPage() {
+  const { products } = useStore();
+  const [q, setQ] = useState("");
+  const [district, setDistrict] = useState("All");
+  const [crop, setCrop] = useState("All");
+  const [rating, setRating] = useState("All");
+  const [contact, setContact] = useState<Product | null>(null);
+
+  const districts = [...new Set(SELLER_PROFILES.map((f) => f.district))];
+  const crops = [...new Set(SELLER_PROFILES.flatMap((f) => f.crops))];
+  const list = SELLER_PROFILES.filter(
+    (f) =>
+      `${f.name} ${f.village} ${f.district} ${f.crops.join(" ")}`
+        .toLowerCase()
+        .includes(q.toLowerCase()) &&
+      (district === "All" || f.district === district) &&
+      (crop === "All" || f.crops.includes(crop)) &&
+      (rating === "All" || f.rating >= Number(rating)),
+  );
+
+  return (
+    <>
+      <PageHeader
+        title={t("Sellers")}
+        subtitle={t("Find sellers selling fresh agricultural produce.")}
+        breadcrumb={[t("Buyer"), t("Sellers")]}
+      />
+      <Card className="gap-0 p-4">
+        <div className="grid gap-3 lg:grid-cols-4">
+          <div className="relative">
+            <Search className="absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder={t("Search sellers...")}
+              className="pl-9"
+            />
+          </div>
+          <Pick
+            value={district}
+            onChange={setDistrict}
+            options={["All", ...districts]}
+            label={t("District")}
+          />
+          <Pick value={crop} onChange={setCrop} options={["All", ...crops]} label={t("Products")} />
+          <Pick
+            value={rating}
+            onChange={setRating}
+            options={["All", "4.5", "4", "3"]}
+            label={t("Rating")}
+          />
+        </div>
+      </Card>
+
+      {list.length === 0 ? (
+        <div className="mt-4">
+          <EmptyState
+            icon={Users}
+            title={t("No sellers found")}
+            desc={t("Try a different keyword or district.")}
+          />
+        </div>
+      ) : (
+        <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          {list.map((f) => {
+            const listings = products.filter((p) => p.seller === f.name && p.active);
+            return (
+              <Card key={f.id} className="gap-0 p-5">
+                <div className="flex items-center gap-3">
+                  <img src={f.image} alt={f.name} className="size-12 rounded-full object-cover" />
+                  <div>
+                    <p className="flex items-center gap-1.5 font-semibold">
+                      {f.name} {f.verified && <BadgeCheck className="size-4 text-primary" />}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {t(f.village)}, {t(f.district)}
+                    </p>
+                  </div>
+                  <span className="ml-auto flex items-center gap-1 text-sm">
+                    <Star className="size-4 fill-harvest text-harvest" /> {f.rating}
+                  </span>
+                </div>
+                <p className="mt-3 text-xs text-muted-foreground">
+                  {t("Produces")}: {f.crops.map((c) => t(c)).join(", ")}
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {listings.length} {t("Active Listings")}
+                </p>
+                {f.verified && (
+                  <Badge variant="secondary" className="mt-2 w-fit rounded-full">
+                    {t("Verified Seller")}
+                  </Badge>
+                )}
+                <div className="mt-4 flex gap-2">
+                  <Link to="/app/$" params={{ _splat: `buyer/sellers/${f.id}` }} className="flex-1">
+                    <Button variant="outline" className="w-full">
+                      {t("View Seller")}
+                    </Button>
+                  </Link>
+                  <Button
+                    className="flex-1"
+                    disabled={listings.length === 0}
+                    onClick={() => setContact(listings[0] ?? null)}
+                  >
+                    {t("Contact Seller")}
+                  </Button>
+                </div>
+              </Card>
+            );
+          })}
+        </div>
+      )}
+      <ContactSellerDialog product={contact} onClose={() => setContact(null)} />
+    </>
+  );
+}
+
+export function BuyerSellerDetail({ sellerId }: { sellerId: string }) {
+  const { products, reviews } = useStore();
+  const profile = SELLER_PROFILES.find((f) => f.id === sellerId);
+  const [buy, setBuy] = useState<Product | null>(null);
+  const [contact, setContact] = useState<Product | null>(null);
+
+  if (!profile) {
+    return (
+      <>
+        <PageHeader title={t("Seller Profile")} breadcrumb={[t("Buyer"), t("Sellers")]} />
+        <EmptyState
+          icon={Users}
+          title={t("No sellers found")}
+          desc={t("This seller profile is not available.")}
+          action={
+            <Link to="/app/$" params={{ _splat: "buyer/sellers" }}>
+              <Button>{t("Sellers")}</Button>
+            </Link>
+          }
+        />
+      </>
+    );
+  }
+
+  const listings = products.filter((p) => p.seller === profile.name && p.active);
+  const sellerReviews = reviews.filter((r) => r.seller === profile.name);
+
+  return (
+    <>
+      <PageHeader
+        title={profile.name}
+        subtitle={`${t(profile.village)}, ${t(profile.district)}`}
+        breadcrumb={[t("Buyer"), t("Sellers"), profile.name]}
+        action={
+          <Link to="/app/$" params={{ _splat: "buyer/sellers" }}>
+            <Button variant="outline" className="gap-2">
+              <ArrowLeft className="size-4" /> {t("Sellers")}
+            </Button>
+          </Link>
+        }
+      />
+      <div className="grid gap-4 lg:grid-cols-3">
+        <SectionCard title={t("Seller Profile")}>
+          <img
+            src={profile.image}
+            alt={profile.name}
+            className="h-32 w-full rounded-xl object-cover"
+          />
+          <dl className="mt-3 grid grid-cols-2 gap-3 text-sm">
+            <Row label={t("Location")} value={`${t(profile.village)}, ${t(profile.district)}`} />
+            <Row label={t("Business Name")} value={profile.business} />
+            <Row label={t("Rating")} value={`★ ${profile.rating}`} />
+            <Row label={t("Active Listings")} value={String(listings.length)} />
+            <Row
+              label={t("Verification")}
+              value={profile.verified ? t("Verified Seller") : t("Pending")}
+            />
+            <Row label={t("Phone")} value={profile.phone} />
+          </dl>
+          <p className="mt-3 text-sm text-muted-foreground">{t(profile.about)}</p>
+          <p className="mt-2 text-xs text-muted-foreground">
+            {t("Main Crops")}: {profile.crops.map((c) => t(c)).join(", ")}
+          </p>
+          <Button
+            className="mt-3 w-full gap-2"
+            disabled={listings.length === 0}
+            onClick={() => setContact(listings[0] ?? null)}
+          >
+            <MessageSquare className="size-4" /> {t("Contact Seller")}
+          </Button>
+        </SectionCard>
+
+        <div className="space-y-4 lg:col-span-2">
+          <SectionCard title={t("Products Available")}>
+            {listings.length === 0 ? (
+              <EmptyState
+                icon={Package}
+                title={t("No produce found.")}
+                desc={t("This seller has no active listings right now.")}
+              />
+            ) : (
+              <div className="grid gap-4 sm:grid-cols-2">
+                {listings.map((p) => (
+                  <ProduceCard key={p.id} product={p} onBuy={() => setBuy(p)} compact />
+                ))}
+              </div>
+            )}
+          </SectionCard>
+
+          <SectionCard title={t("Reviews")}>
+            {sellerReviews.length === 0 ? (
+              <p className="text-sm text-muted-foreground">{t("No reviews yet.")}</p>
+            ) : (
+              <div className="space-y-3">
+                {sellerReviews.map((r) => (
+                  <div key={r.id} className="rounded-xl border p-3">
+                    <div className="flex flex-wrap items-center gap-2 text-sm">
+                      <span className="font-medium">{r.buyer}</span>
+                      <Badge variant="secondary">{t(r.product)}</Badge>
+                      <span className="ml-auto flex items-center gap-0.5">
+                        {Array.from({ length: r.rating }).map((_, i) => (
+                          <Star key={i} className="size-3.5 fill-harvest text-harvest" />
+                        ))}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-sm text-muted-foreground">{t(r.text)}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </SectionCard>
+        </div>
+      </div>
+
+      <BuyNowDialog product={buy} onClose={() => setBuy(null)} />
+      <ContactSellerDialog product={contact} onClose={() => setContact(null)} />
+    </>
+  );
+}
+
+/* ------------------------------------------------------------------ messages */
+
+export function BuyerMessagesPage() {
+  const { enquiries, replyEnquiry } = useStore();
+  const mine = enquiries.filter((e) => e.buyer === BUYER);
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+
+  return (
+    <>
+      <PageHeader
+        title={t("Messages / Enquiries")}
+        subtitle={t("Your conversations with sellers.")}
+        breadcrumb={[t("Buyer"), t("Messages")]}
+      />
+      {mine.length === 0 ? (
+        <EmptyState
+          icon={MessageSquare}
+          title={t("No enquiries yet.")}
+          desc={t("Contact a seller from the marketplace to start a conversation.")}
+          action={
+            <Link to="/app/$" params={{ _splat: "buyer/marketplace" }}>
+              <Button>{t("Browse Marketplace")}</Button>
+            </Link>
+          }
+        />
+      ) : (
+        <div className="space-y-4">
+          {mine.map((e) => (
+            <Card key={e.id} className="gap-0 p-5">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-semibold">{e.seller}</span>
+                <Badge variant="secondary">{t(e.product)}</Badge>
+                <span className="ml-auto text-xs text-muted-foreground">{t(e.time)}</span>
+              </div>
+              <div className="mt-2 space-y-2">
+                {e.messages.map((m, i) => (
+                  <p
+                    key={i}
+                    className={`rounded-xl p-3 text-sm ${m.from === "buyer" ? "bg-pale/60" : "bg-muted"}`}
+                  >
+                    <b>{m.from === "buyer" ? t("You") : e.seller}:</b> {t(m.text)}
+                  </p>
+                ))}
+              </div>
+              <div className="mt-3 flex gap-2">
+                <Input
+                  maxLength={300}
+                  value={drafts[e.id] ?? ""}
+                  onChange={(ev) => setDrafts({ ...drafts, [e.id]: ev.target.value })}
+                  placeholder={t("Type your message")}
+                  aria-label={`Message ${e.seller}`}
+                />
+                <Button
+                  onClick={() => {
+                    const text = (drafts[e.id] ?? "").trim();
+                    if (!text) {
+                      toast.error(t("Type your message"));
+                      return;
+                    }
+                    replyEnquiry(e.id, "buyer", text);
+                    setDrafts({ ...drafts, [e.id]: "" });
+                    toast.success(t("Message sent"));
+                  }}
+                >
+                  {t("Send")}
+                </Button>
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
+
+/* ------------------------------------------------------------------ market prices */
+
+export function BuyerMarketPricesPage() {
+  const navigate = useNavigate();
+  const [q, setQ] = useState("");
+  const [cat, setCat] = useState("All");
+  const [district, setDistrict] = useState("All");
+
+  const districts = [...new Set(MARKET_PRICE_BOARD.map((m) => m.district))];
+  const rows = MARKET_PRICE_BOARD.filter(
+    (m) =>
+      m.product.toLowerCase().includes(q.toLowerCase()) &&
+      (cat === "All" || m.category === cat) &&
+      (district === "All" || m.district === district),
+  );
+
+  return (
+    <>
+      <PageHeader
+        title={t("Market Prices")}
+        subtitle={t("Compare today's mandi rates before buying produce.")}
+        breadcrumb={[t("Buyer"), t("Market Prices")]}
+      />
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <StatCard
+          icon={TrendingUp}
+          label={t("Markets Tracked")}
+          value={new Set(MARKET_PRICE_BOARD.map((m) => m.market)).size}
+        />
+        <StatCard
+          icon={Leaf}
+          label={t("Products Tracked")}
+          value={MARKET_PRICE_BOARD.length}
+          tone="forest"
+        />
+        <StatCard
+          icon={IndianRupee}
+          label={t("Prices Updated Today")}
+          value={MARKET_PRICE_BOARD.length}
+          tone="harvest"
+        />
+        <StatCard
+          icon={Package}
+          label={t("Buy Directly")}
+          value={t("From Sellers")}
+          tone="forest"
+        />
+      </div>
+
+      <Card className="mt-4 gap-0 p-4">
+        <div className="grid gap-3 lg:grid-cols-3">
+          <div className="relative">
+            <Search className="absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder={t("Search crop or vegetable...")}
+              className="pl-9"
+            />
+          </div>
+          <Pick
+            value={cat}
+            onChange={setCat}
+            options={["All", ...PRODUCE_CATEGORIES]}
+            label={t("Category")}
+          />
+          <Pick
+            value={district}
+            onChange={setDistrict}
+            options={["All", ...districts]}
+            label={t("District")}
+          />
+        </div>
+      </Card>
+
+      <SectionCard title={t("Today's Mandi Rates")} className="mt-4">
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>{t("Product")}</TableHead>
+                <TableHead>{t("Market")}</TableHead>
+                <TableHead>{t("District")}</TableHead>
+                <TableHead>{t("Min Price")}</TableHead>
+                <TableHead>{t("Max Price")}</TableHead>
+                <TableHead>{t("Average Price")}</TableHead>
+                <TableHead>{t("Unit")}</TableHead>
+                <TableHead>{t("Trend")}</TableHead>
+                <TableHead>{t("Last Updated")}</TableHead>
+                <TableHead className="text-right">{t("Action")}</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {rows.map((m) => (
+                <TableRow key={m.id}>
+                  <TableCell className="font-medium">{t(m.product)}</TableCell>
+                  <TableCell className="text-muted-foreground">{t(m.market)}</TableCell>
+                  <TableCell className="text-muted-foreground">{t(m.district)}</TableCell>
+                  <TableCell>{inr(m.min)}</TableCell>
+                  <TableCell>{inr(m.max)}</TableCell>
+                  <TableCell className="font-semibold text-forest">{inr(m.avg)}</TableCell>
+                  <TableCell>{t(m.unit)}</TableCell>
+                  <TableCell>
+                    <TrendBadge trend={trendOf(m.change)} change={m.change} />
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">{t(m.updated)}</TableCell>
+                  <TableCell className="text-right">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() =>
+                        navigate({
+                          to: "/app/$",
+                          params: { _splat: "buyer/marketplace" },
+                          search: { use: m.product },
+                        })
+                      }
+                    >
+                      {t("View Available Produce")}
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+        {rows.length === 0 && (
+          <EmptyState
+            icon={TrendingUp}
+            title={t("No market prices found")}
+            desc={t("Try a different crop or district.")}
+          />
+        )}
+      </SectionCard>
+    </>
+  );
+}
