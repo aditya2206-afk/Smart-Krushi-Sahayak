@@ -19,6 +19,15 @@ Frontend/.env.local
 Backend/.env
 Backend/.env.local
 
+# Prisma generated client
+Backend/src/generated/
+
+# AI / IDE generated helper folders
+Backend/.agents/
+Backend/.claude/
+Backend/.windsurf/
+Backend/skills-lock.json
+
 # Logs
 *.log
 npm-debug.log*
