@@ -31,6 +31,15 @@ import {
   type Review,
   type Role,
 } from "./data";
+import {
+  clearSession,
+  fetchCurrentUser,
+  getStoredToken,
+  getStoredUser,
+  persistSession,
+  toFrontendRole,
+  type SafeAuthUser,
+} from "./auth";
 import { setActiveLang, translate, type Lang } from "./i18n";
 
 const STORAGE_KEY = "sks-prototype-state-v5";
@@ -43,6 +52,7 @@ export interface CartLine {
 interface PersistedState {
   lang: Lang;
   role: Role | null;
+  authUser: SafeAuthUser | null;
   queries: Query[];
   products: Product[];
   orders: Order[];
@@ -66,6 +76,7 @@ interface PersistedState {
 const initialState: PersistedState = {
   lang: "en",
   role: null,
+  authUser: null,
   queries: seedQueries,
   products: seedProducts,
   orders: seedOrders,
@@ -88,11 +99,15 @@ const initialState: PersistedState = {
 
 interface StoreValue extends PersistedState {
   hydrated: boolean;
+  authChecked: boolean;
   t: (key: string) => string;
   setLang: (l: Lang) => void;
+  setSession: (token: string, user: SafeAuthUser) => void;
+  refreshSession: () => Promise<SafeAuthUser | null>;
+  /** @deprecated Mock auth bypass — kept only so old call sites typecheck; it no-ops. */
   loginAs: (r: Role) => void;
   logout: () => void;
-  user: (typeof DEMO_USERS)[Role] | null;
+  user: { name: string; subtitle: string; meta: string; initials: string } | null;
   addQuery: (q: Query) => void;
   updateQueryStatus: (id: string, status: QueryStatus) => void;
   assignOfficer: (id: string, officer: string) => void;
@@ -154,18 +169,47 @@ globalStore.__sklStoreContext = StoreContext;
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<PersistedState>(initialState);
   const [hydrated, setHydrated] = useState(false);
+  const [authChecked, setAuthChecked] = useState(false);
 
   // Keep the global t() helper in sync before any child renders.
   setActiveLang(state.lang);
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) setState({ ...initialState, ...(JSON.parse(raw) as PersistedState) });
-    } catch {
-      /* ignore corrupt state */
-    }
-    setHydrated(true);
+    let cancelled = false;
+    (async () => {
+      let next: PersistedState = initialState;
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (raw) next = { ...initialState, ...(JSON.parse(raw) as PersistedState) };
+      } catch {
+        /* ignore corrupt state */
+      }
+
+      // Backend session is authoritative. Never trust a persisted role alone.
+      const token = getStoredToken();
+      const cached = getStoredUser();
+      if (!token || !cached) {
+        clearSession();
+        next = { ...next, role: null, authUser: null };
+      } else {
+        try {
+          const me = await fetchCurrentUser(token);
+          persistSession(token, me);
+          next = { ...next, role: toFrontendRole(me.role), authUser: me };
+        } catch {
+          clearSession();
+          next = { ...next, role: null, authUser: null };
+        }
+      }
+      if (!cancelled) {
+        setState(next);
+        setHydrated(true);
+        setAuthChecked(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -181,14 +225,56 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<StoreValue>(() => {
     const nid = () => Math.random().toString(36).slice(2, 9);
+    const displayUser = state.authUser
+      ? {
+          name: state.authUser.name,
+          subtitle: state.authUser.role === "OFFICER" ? "Krushi Adhikari" : state.authUser.role,
+          meta: state.authUser.email,
+          initials: state.authUser.name
+            .split(" ")
+            .map((w) => w.charAt(0))
+            .join("")
+            .slice(0, 2)
+            .toUpperCase(),
+        }
+      : state.role
+        ? DEMO_USERS[state.role]
+        : null;
     return {
       ...state,
       hydrated,
+      authChecked,
       t: (key: string) => translate(state.lang, key),
-      user: state.role ? DEMO_USERS[state.role] : null,
+      user: displayUser,
       setLang: (lang) => patch((s) => ({ ...s, lang })),
-      loginAs: (role) => patch((s) => ({ ...s, role })),
-      logout: () => patch((s) => ({ ...s, role: null })),
+      setSession: (token, authUser) => {
+        persistSession(token, authUser);
+        patch((s) => ({ ...s, role: toFrontendRole(authUser.role), authUser }));
+      },
+      refreshSession: async () => {
+        const token = getStoredToken();
+        if (!token) {
+          clearSession();
+          patch((s) => ({ ...s, role: null, authUser: null }));
+          return null;
+        }
+        try {
+          const me = await fetchCurrentUser(token);
+          persistSession(token, me);
+          patch((s) => ({ ...s, role: toFrontendRole(me.role), authUser: me }));
+          return me;
+        } catch {
+          clearSession();
+          patch((s) => ({ ...s, role: null, authUser: null }));
+          return null;
+        }
+      },
+      // Disabled mock bypass: auth state can only come from backend login/verify.
+      loginAs: () => {},
+      logout: () => {
+        clearSession();
+        patch((s) => ({ ...s, role: null, authUser: null }));
+      },
       addQuery: (q) =>
         patch((s) => ({
           ...s,
@@ -676,7 +762,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           ),
         })),
     };
-  }, [state, patch, hydrated]);
+  }, [state, patch, hydrated, authChecked]);
 
   return (
     <StoreContext.Provider value={value}>

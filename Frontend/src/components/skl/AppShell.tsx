@@ -6,7 +6,6 @@ import {
   LifeBuoy,
   LogOut,
   Menu,
-  Repeat,
   Search,
   Heart,
   UserCircle,
@@ -27,7 +26,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { useStore } from "@/lib/skl/store";
-import { MOBILE_NAV, NAV, ROLE_LABEL, SEARCH_INDEX } from "@/lib/skl/nav";
+import { MOBILE_NAV, NAV, SEARCH_INDEX } from "@/lib/skl/nav";
 import type { Role } from "@/lib/skl/data";
 import { LanguageSelector, Logo } from "./common";
 import { Chatbot } from "./Chatbot";
@@ -130,7 +129,7 @@ function GlobalSearch() {
 }
 
 export function AppShell({ children }: { children: ReactNode }) {
-  const { role, user, notifications, unread, markAllRead, logout, loginAs, savedListings } =
+  const { role, user, notifications, unread, markAllRead, logout, savedListings } =
     useStore();
   const navigate = useNavigate();
   const [openMenu, setOpenMenu] = useState(false);
@@ -138,9 +137,10 @@ export function AppShell({ children }: { children: ReactNode }) {
   if (!role || !user) return null;
   const roleNotifs = notifications.filter((n) => n.role === role).slice(0, 6);
 
-  const switchRole = (r: Role) => {
-    loginAs(r);
-    navigate({ to: "/app/$", params: { _splat: `${r}/dashboard` } });
+  const doLogout = () => {
+    // Clears authToken + authUser, then lands on Login.
+    logout();
+    navigate({ to: "/login" });
   };
 
   return (
@@ -156,7 +156,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         <SupportCard />
         <div className="border-t px-3 py-3">
           <button
-            onClick={logout}
+            onClick={doLogout}
             className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
           >
             <LogOut className="size-[18px]" /> {t("Logout")}
@@ -273,7 +273,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                   <span className="hidden text-left leading-tight sm:block">
                     <span className="block text-xs font-semibold">{user.name}</span>
                     <span className="block text-[10px] text-muted-foreground">
-                      {ROLE_LABEL[role]}
+                      {user.subtitle}
                     </span>
                   </span>
                   <ChevronDown className="hidden size-4 text-muted-foreground sm:block" />
@@ -293,18 +293,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                   <UserCircle className="size-4" /> {t("Profile")}
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
-                <DropdownMenuLabel className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-                  <Repeat className="size-3" /> Switch Role (demo)
-                </DropdownMenuLabel>
-                {(Object.keys(ROLE_LABEL) as Role[]).map((r) => (
-                  <DropdownMenuItem key={r} onClick={() => switchRole(r)}>
-                    <span className={cn(r === role && "font-semibold text-primary")}>
-                      {ROLE_LABEL[r]}
-                    </span>
-                  </DropdownMenuItem>
-                ))}
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={logout} className="text-destructive">
+                <DropdownMenuItem onClick={doLogout} className="text-destructive">
                   <LogOut className="size-4" /> {t("Logout")}
                 </DropdownMenuItem>
               </DropdownMenuContent>
