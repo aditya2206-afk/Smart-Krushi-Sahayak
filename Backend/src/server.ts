@@ -2,14 +2,22 @@ import cors from "cors";
 import dotenv from "dotenv";
 import express, { type Request, type Response } from "express";
 import { prisma } from "./lib/prisma.js";
+import authRoutes from "./routes/authRoutes.js";
 
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT ? Number(process.env.PORT) : 5000;
 
-app.use(cors());
+app.use(
+  cors({
+    origin: process.env.CLIENT_URL ? [process.env.CLIENT_URL] : true,
+    credentials: true,
+  })
+);
 app.use(express.json());
+
+app.use("/api/auth", authRoutes);
 
 app.get("/api/health", (_req: Request, res: Response) => {
   res.json({
@@ -20,7 +28,17 @@ app.get("/api/health", (_req: Request, res: Response) => {
 
 app.get("/api/db-test", async (_req: Request, res: Response) => {
   try {
-    const users = await prisma.user.findMany();
+    const users = await prisma.user.findMany({
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+        isActive: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
     res.json({
       success: true,
       message: "Database connected successfully",

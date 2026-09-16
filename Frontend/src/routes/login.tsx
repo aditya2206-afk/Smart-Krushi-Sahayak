@@ -1,16 +1,6 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
-import {
-  CloudSun,
-  Eye,
-  EyeOff,
-  ShieldCheck,
-  ShoppingBag,
-  Sprout,
-  Store,
-  UserCog,
-  Wheat,
-} from "lucide-react";
+import { CloudSun, Eye, EyeOff, ShieldCheck, Sprout } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -19,7 +9,11 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 import { LanguageSelector, Logo } from "@/components/skl/common";
 import { useStore } from "@/lib/skl/store";
-import type { Role } from "@/lib/skl/data";
+import {
+  dashboardPathForRole,
+  friendlyAuthError,
+  loginRequest,
+} from "@/lib/skl/auth";
 import loginImg from "@/assets/login-farmer.jpg";
 import { t } from "@/lib/skl/i18n";
 
@@ -41,55 +35,43 @@ export const Route = createFileRoute("/login")({
   component: LoginPage,
 });
 
-const DEMOS: { role: Role; label: string; emoji: string; icon: typeof Sprout; desc: string }[] = [
-  {
-    role: "farmer",
-    label: "Farmer Demo",
-    emoji: "👨‍🌾",
-    icon: Wheat,
-    desc: "Get expert agricultural assistance.",
-  },
-  {
-    role: "seller",
-    label: "Seller Demo",
-    emoji: "🧺",
-    icon: Store,
-    desc: "Sell agricultural produce and manage orders.",
-  },
-  {
-    role: "buyer",
-    label: "Buyer Demo",
-    emoji: "🛒",
-    icon: ShoppingBag,
-    desc: "Buy agricultural produce directly from sellers.",
-  },
-  {
-    role: "officer",
-    label: "Krushi Adhikari Demo",
-    emoji: "👨‍💼",
-    icon: UserCog,
-    desc: "Provide expert agricultural guidance.",
-  },
-  {
-    role: "admin",
-    label: "Admin Demo",
-    emoji: "🛡",
-    icon: ShieldCheck,
-    desc: "Manage and monitor the platform.",
-  },
-];
-
 function LoginPage() {
-  const { loginAs } = useStore();
+  const { setSession } = useStore();
   const navigate = useNavigate();
   const [show, setShow] = useState(false);
   const [id, setId] = useState("");
   const [pw, setPw] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const enter = (role: Role) => {
-    loginAs(role);
-    toast.success(`Logged in as ${role === "officer" ? "Krushi Adhikari" : role}`);
-    navigate({ to: "/app/$", params: { _splat: `${role}/dashboard` } });
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const email = id.trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setError("Please enter a valid email address.");
+      return;
+    }
+    if (!pw) {
+      setError("Please enter your password.");
+      return;
+    }
+    if (loading) return;
+    setLoading(true);
+    setError(null);
+    try {
+      // Authoritative backend login. No mock users, no role-based bypass.
+      const result = await loginRequest(email, pw);
+      setSession(result.token, result.user);
+      toast.success("Login successful");
+      navigate({
+        to: "/app/$",
+        params: { _splat: dashboardPathForRole(result.user.role) },
+      });
+    } catch (err) {
+      setError(friendlyAuthError(err, "Login failed. Please try again."));
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -146,26 +128,18 @@ function LoginPage() {
               {t("Login to continue to your account.")}
             </p>
 
-            <form
-              className="mt-6 space-y-4"
-              onSubmit={(e) => {
-                e.preventDefault();
-                if (!id.trim() || pw.length < 4) {
-                  toast.error("Enter mobile/email and a password of at least 4 characters");
-                  return;
-                }
-                enter("farmer");
-              }}
-            >
+            <form className="mt-6 space-y-4" onSubmit={submit}>
               <div>
-                <Label htmlFor="id">{t("Mobile Number / Email")}</Label>
+                <Label htmlFor="id">{t("Email")}</Label>
                 <Input
                   id="id"
+                  type="email"
+                  autoComplete="email"
                   value={id}
                   onChange={(e) => setId(e.target.value)}
                   maxLength={255}
                   className="mt-1.5 h-11"
-                  placeholder="98220 11223"
+                  placeholder="you@example.com"
                 />
               </div>
               <div>
@@ -174,6 +148,7 @@ function LoginPage() {
                   <Input
                     id="pw"
                     type={show ? "text" : "password"}
+                    autoComplete="current-password"
                     value={pw}
                     onChange={(e) => setPw(e.target.value)}
                     maxLength={64}
@@ -190,6 +165,11 @@ function LoginPage() {
                   </button>
                 </div>
               </div>
+              {error ? (
+                <p role="alert" className="text-sm font-medium text-destructive">
+                  {error}
+                </p>
+              ) : null}
               <div className="flex items-center justify-between">
                 <label className="flex items-center gap-2 text-sm">
                   <Checkbox defaultChecked /> {t("Remember Me")}
@@ -204,53 +184,15 @@ function LoginPage() {
                   {t("Forgot Password?")}
                 </button>
               </div>
-              <Button type="submit" className="h-11 w-full text-base">
-                {t("Login")}
+              <Button type="submit" className="h-11 w-full text-base" disabled={loading}>
+                {loading ? "Logging in..." : t("Login")}
               </Button>
             </form>
 
-            <div className="my-5 flex items-center gap-3 text-xs text-muted-foreground">
-              <span className="h-px flex-1 bg-border" /> {t("OR")}{" "}
-              <span className="h-px flex-1 bg-border" />
-            </div>
-            <div className="grid gap-2 sm:grid-cols-2">
-              <Button
-                variant="outline"
-                onClick={() => toast.info("Google sign-in is simulated in this prototype.")}
-              >
-                {t("Continue with Google")}
-              </Button>
-              <Button
-                variant="outline"
-                onClick={() => toast.info("OTP 4321 sent to your mobile (demo).")}
-              >
-                {t("Login with OTP")}
-              </Button>
-            </div>
-
-            <div className="mt-6 rounded-2xl border border-dashed bg-pale/60 p-4">
-              <p className="text-sm font-semibold text-forest">{t("Demo Accounts")}</p>
-              <p className="text-xs text-muted-foreground">
-                {t("No password needed \u2014 enter any dashboard instantly.")}
-              </p>
-              <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                {DEMOS.map((d) => (
-                  <button
-                    key={d.role}
-                    onClick={() => enter(d.role)}
-                    className="hover-lift flex items-center gap-2 rounded-xl border bg-card px-3 py-2.5 text-left"
-                  >
-                    <span className="text-lg">{d.emoji}</span>
-                    <span className="min-w-0">
-                      <span className="block truncate text-xs font-semibold">{t(d.label)}</span>
-                      <span className="block truncate text-[10px] text-muted-foreground">
-                        {t(d.desc)}
-                      </span>
-                    </span>
-                  </button>
-                ))}
-              </div>
-            </div>
+            <p className="mt-6 text-center text-sm text-muted-foreground">
+              Use the email and password you registered with. New accounts are
+              created on the Register page.
+            </p>
 
             <p className="mt-6 text-center text-sm text-muted-foreground">
               Don't have an account?{" "}

@@ -1,24 +1,14 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
-import { ArrowLeft, CheckCircle2, ShoppingBag, Store, Upload, UserCog, Wheat } from "lucide-react";
+import { ArrowLeft, CheckCircle2, ShoppingBag, Store, UserCog, Wheat } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
-import { Textarea } from "@/components/ui/textarea";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { toast } from "sonner";
 import { LanguageSelector, Logo } from "@/components/skl/common";
-import { BUYER_TYPES, DISTRICTS } from "@/lib/skl/data";
-import { useStore } from "@/lib/skl/store";
+import { friendlyAuthError, registerRequest, type BackendRole } from "@/lib/skl/auth";
 import { t } from "@/lib/skl/i18n";
 
 export const Route = createFileRoute("/register")({
@@ -47,7 +37,6 @@ type Kind = null | "farmer" | "seller" | "officer" | "buyer";
 function RegisterPage() {
   const [kind, setKind] = useState<Kind>(null);
   const [done, setDone] = useState<string | null>(null);
-  const { loginAs } = useStore();
   const navigate = useNavigate();
 
   return (
@@ -70,20 +59,12 @@ function RegisterPage() {
         {done ? (
           <Card className="gap-0 p-8 text-center">
             <CheckCircle2 className="mx-auto size-14 text-primary" />
-            <h1 className="mt-4 text-2xl font-bold">{t("Registration Submitted")}</h1>
+            <h1 className="mt-4 text-2xl font-bold">Registration successful</h1>
             <p className="mt-2 text-muted-foreground">{done}</p>
             <div className="mt-6 flex flex-wrap justify-center gap-3">
-              <Button
-                onClick={() => {
-                  loginAs("farmer");
-                  navigate({ to: "/app/$", params: { _splat: "farmer/dashboard" } });
-                }}
-              >
-                {t("Continue to Demo Dashboard")}
+              <Button onClick={() => navigate({ to: "/login" })}>
+                {t("Go to Login")}
               </Button>
-              <Link to="/login">
-                <Button variant="outline">{t("Go to Login")}</Button>
-              </Link>
             </div>
           </Card>
         ) : !kind ? (
@@ -146,10 +127,10 @@ function RegisterPage() {
             >
               <ArrowLeft className="size-4" /> {t("Change role")}
             </button>
-            {kind === "farmer" && <FarmerForm onDone={setDone} />}
-            {kind === "seller" && <SellerForm onDone={setDone} />}
-            {kind === "officer" && <OfficerForm onDone={setDone} />}
-            {kind === "buyer" && <BuyerForm onDone={setDone} />}
+            {kind === "farmer" && <AuthRegisterForm role="FARMER" title="Farmer Registration" onDone={setDone} />}
+            {kind === "seller" && <AuthRegisterForm role="SELLER" title="Seller Registration" onDone={setDone} />}
+            {kind === "officer" && <AuthRegisterForm role="OFFICER" title="Krushi Adhikari Registration" onDone={setDone} />}
+            {kind === "buyer" && <AuthRegisterForm role="BUYER" title="Buyer Registration" onDone={setDone} />}
           </>
         )}
       </main>
@@ -166,181 +147,88 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-function DistrictSelect() {
-  return (
-    <Select>
-      <SelectTrigger className="w-full">
-        <SelectValue placeholder={t("Select district")} />
-      </SelectTrigger>
-      <SelectContent>
-        {DISTRICTS.map((d) => (
-          <SelectItem key={d} value={d}>
-            {d}
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
-  );
-}
+function AuthRegisterForm({
+  role,
+  title,
+  onDone,
+}: {
+  role: BackendRole;
+  title: string;
+  onDone: (m: string) => void;
+}) {
+  const navigate = useNavigate();
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-function UploadBox({ label }: { label: string }) {
-  const [file, setFile] = useState<string | null>(null);
-  return (
-    <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-dashed bg-muted/40 px-4 py-3 text-sm text-muted-foreground hover:bg-muted">
-      <Upload className="size-4" />
-      {file ?? label}
-      <input
-        type="file"
-        className="sr-only"
-        onChange={(e) => setFile(e.target.files?.[0]?.name ?? "file-selected.png")}
-      />
-    </label>
-  );
-}
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name.trim()) {
+      setError("Please enter your full name.");
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+      setError("Please enter a valid email address.");
+      return;
+    }
+    if (password.length < 8) {
+      setError("Password must be at least 8 characters long.");
+      return;
+    }
+    if (password !== confirm) {
+      setError("Passwords do not match.");
+      return;
+    }
+    if (loading) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const user = await registerRequest({ name, email, password, role });
+      toast.success("Registration successful");
+      onDone(`Account created for ${user.email} as ${user.role}. Please login.`);
+      navigate({ to: "/login" });
+    } catch (err) {
+      setError(friendlyAuthError(err, "Registration failed. Please try again."));
+    } finally {
+      setLoading(false);
+    }
+  };
 
-function FarmerForm({ onDone }: { onDone: (m: string) => void }) {
-  const [agree, setAgree] = useState(false);
-  return (
-    <Card className="gap-0 p-6">
-      <h1 className="text-2xl font-bold">{t("Farmer Registration")}</h1>
-      <p className="mt-1 text-sm text-muted-foreground">{t("Tell us about you and your farm.")}</p>
-      <form
-        className="mt-6 grid gap-4 sm:grid-cols-2"
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (!agree) {
-            toast.error("Please accept Terms & Privacy Policy");
-            return;
-          }
-          onDone(
-            "Your farmer account has been created. You can now login and start asking questions.",
-          );
-        }}
-      >
-        <Field label={t("Full Name")}>
-          <Input required maxLength={100} placeholder={t("Ramesh Patil")} />
-        </Field>
-        <Field label={t("Mobile Number")}>
-          <Input required maxLength={15} placeholder="98220 11223" />
-        </Field>
-        <Field label={t("Email")}>
-          <Input type="email" maxLength={255} placeholder={t("ramesh@example.com")} />
-        </Field>
-        <Field label={t("Password")}>
-          <Input type="password" required minLength={6} maxLength={64} />
-        </Field>
-        <Field label={t("Confirm Password")}>
-          <Input type="password" required minLength={6} maxLength={64} />
-        </Field>
-        <Field label={t("State")}>
-          <Input defaultValue="Maharashtra" maxLength={60} />
-        </Field>
-        <Field label={t("District")}>
-          <DistrictSelect />
-        </Field>
-        <Field label={t("Taluka")}>
-          <Input maxLength={60} placeholder={t("Malshiras")} />
-        </Field>
-        <Field label={t("Village")}>
-          <Input maxLength={60} placeholder={t("Akluj")} />
-        </Field>
-        <Field label={t("Pincode")}>
-          <Input maxLength={6} placeholder="413101" />
-        </Field>
-        <Field label={t("Preferred Language")}>
-          <Select defaultValue="English">
-            <SelectTrigger className="w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="English">{t("English")}</SelectItem>
-              <SelectItem value="Marathi">मराठी</SelectItem>
-              <SelectItem value="Hindi">हिंदी</SelectItem>
-            </SelectContent>
-          </Select>
-        </Field>
-        <Field label={t("Main Crops")}>
-          <Input maxLength={120} placeholder={t("Soybean, Cotton, Onion")} />
-        </Field>
-        <Field label={t("Farm Size (acres)")}>
-          <Input maxLength={10} placeholder="6.5" />
-        </Field>
-        <Field label={t("Profile Photo")}>
-          <UploadBox label={t("Upload profile photo")} />
-        </Field>
-        <div className="sm:col-span-2">
-          <label className="flex items-start gap-2 text-sm">
-            <Checkbox checked={agree} onCheckedChange={(v) => setAgree(Boolean(v))} />
-            {t("I agree to Terms & Privacy Policy.")}
-          </label>
-          <Button type="submit" className="mt-4 h-11 w-full sm:w-auto sm:px-10">
-            {t("Create Farmer Account")}
-          </Button>
-        </div>
-      </form>
-    </Card>
-  );
-}
-
-function SellerForm({ onDone }: { onDone: (m: string) => void }) {
   return (
     <Card className="gap-0 p-6">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h1 className="text-2xl font-bold">{t("Seller Registration")}</h1>
-        <Badge
-          variant="outline"
-          className="rounded-full border-warning/40 bg-warning/10 text-warning"
-        >
-          {t("Pending Verification")}
+        <h1 className="text-2xl font-bold">{title}</h1>
+        <Badge variant="outline" className="rounded-full">
+          {role}
         </Badge>
       </div>
       <p className="mt-1 text-sm text-muted-foreground">
-        {t("Register your agricultural produce business.")}
+        Admin accounts cannot be registered publicly.
       </p>
-      <form
-        className="mt-6 grid gap-4 sm:grid-cols-2"
-        onSubmit={(e) => {
-          e.preventDefault();
-          onDone("Your seller application is submitted. Status: Pending Verification by Admin.");
-        }}
-      >
+      <form className="mt-6 grid gap-4 sm:grid-cols-2" onSubmit={submit}>
         <Field label={t("Full Name")}>
-          <Input required maxLength={100} placeholder={t("Anil Pawar")} />
-        </Field>
-        <Field label={t("Business Name")}>
-          <Input required maxLength={120} placeholder={t("Pawar Fresh Produce")} />
-        </Field>
-        <Field label={t("Mobile Number")}>
-          <Input required maxLength={15} />
+          <Input required maxLength={100} value={name} onChange={(e) => setName(e.target.value)} />
         </Field>
         <Field label={t("Email")}>
-          <Input type="email" maxLength={255} />
+          <Input type="email" required maxLength={255} value={email} onChange={(e) => setEmail(e.target.value)} />
         </Field>
         <Field label={t("Password")}>
-          <Input type="password" required minLength={6} maxLength={64} />
+          <Input type="password" required minLength={8} maxLength={64} value={password} onChange={(e) => setPassword(e.target.value)} />
         </Field>
         <Field label={t("Confirm Password")}>
-          <Input type="password" required minLength={6} maxLength={64} />
+          <Input type="password" required minLength={8} maxLength={64} value={confirm} onChange={(e) => setConfirm(e.target.value)} />
         </Field>
-        <Field label={t("District")}>
-          <DistrictSelect />
-        </Field>
-        <Field label={t("Pincode")}>
-          <Input maxLength={6} />
-        </Field>
+        {error ? (
+          <p role="alert" className="text-sm font-medium text-destructive sm:col-span-2">
+            {error}
+          </p>
+        ) : null}
         <div className="sm:col-span-2">
-          <Field label={t("Business Address")}>
-            <Textarea required maxLength={300} rows={3} placeholder={t("Market Yard, Solapur")} />
-          </Field>
-        </div>
-        <div className="sm:col-span-2">
-          <Field label={t("Produce Categories")}>
-            <Input required maxLength={160} placeholder={t("Vegetables, Fruits, Grains, Pulses")} />
-          </Field>
-        </div>
-        <div className="sm:col-span-2">
-          <Button type="submit" className="h-11 w-full sm:w-auto sm:px-10">
-            {t("Create Seller Account")}
+          <Button type="submit" className="h-11 w-full sm:w-auto sm:px-10" disabled={loading}>
+            {loading ? "Creating account..." : `Create ${role} Account`}
           </Button>
         </div>
       </form>
@@ -348,153 +236,5 @@ function SellerForm({ onDone }: { onDone: (m: string) => void }) {
   );
 }
 
-function OfficerForm({ onDone }: { onDone: (m: string) => void }) {
-  return (
-    <Card className="gap-0 p-6">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h1 className="text-2xl font-bold">{t("Krushi Adhikari Registration")}</h1>
-        <Badge
-          variant="outline"
-          className="rounded-full border-warning/40 bg-warning/10 text-warning"
-        >
-          {t("Pending Admin Verification")}
-        </Badge>
-      </div>
-      <form
-        className="mt-6 grid gap-4 sm:grid-cols-2"
-        onSubmit={(e) => {
-          e.preventDefault();
-          onDone("Your officer application is submitted. Status: Pending Admin Verification.");
-        }}
-      >
-        <Field label={t("Full Name")}>
-          <Input required maxLength={100} placeholder={t("Dr. P. M. Kulkarni")} />
-        </Field>
-        <Field label={t("Employee / Officer ID")}>
-          <Input required maxLength={40} placeholder={t("MH-AGRI-4471")} />
-        </Field>
-        <Field label={t("Email")}>
-          <Input type="email" required maxLength={255} />
-        </Field>
-        <Field label={t("Mobile Number")}>
-          <Input required maxLength={15} />
-        </Field>
-        <Field label={t("Department")}>
-          <Input maxLength={120} placeholder={t("Department of Agriculture, Maharashtra")} />
-        </Field>
-        <Field label={t("Designation")}>
-          <Input maxLength={80} placeholder={t("Agriculture Officer")} />
-        </Field>
-        <Field label={t("District")}>
-          <DistrictSelect />
-        </Field>
-        <Field label={t("Taluka")}>
-          <Input maxLength={60} />
-        </Field>
-        <Field label={t("Areas of Expertise")}>
-          <Input maxLength={160} placeholder={t("Crop Protection, Soil Management")} />
-        </Field>
-        <Field label={t("Experience (years)")}>
-          <Input maxLength={4} placeholder="8" />
-        </Field>
-        <Field label={t("Preferred Languages")}>
-          <Input maxLength={80} placeholder={t("Marathi, Hindi, English")} />
-        </Field>
-        <Field label={t("Password")}>
-          <Input type="password" required minLength={6} maxLength={64} />
-        </Field>
-        <Field label={t("Upload ID / Certificate")}>
-          <UploadBox label={t("Upload officer ID or certificate")} />
-        </Field>
-        <div className="sm:col-span-2">
-          <Button type="submit" className="h-11 w-full sm:w-auto sm:px-10">
-            {t("Submit for Verification")}
-          </Button>
-        </div>
-      </form>
-    </Card>
-  );
-}
+// Legacy mock prototype forms removed: registration now calls POST /api/auth/register.
 
-function BuyerForm({ onDone }: { onDone: (m: string) => void }) {
-  return (
-    <Card className="gap-0 p-6">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h1 className="text-2xl font-bold">{t("Buyer Registration")}</h1>
-        <Badge
-          variant="outline"
-          className="rounded-full border-warning/40 bg-warning/10 text-warning"
-        >
-          {t("Pending Verification")}
-        </Badge>
-      </div>
-      <form
-        className="mt-6 grid gap-4 sm:grid-cols-2"
-        onSubmit={(e) => {
-          e.preventDefault();
-          onDone("Your buyer application is submitted. Status: Pending Verification by Admin.");
-        }}
-      >
-        <Field label={t("Full Name")}>
-          <Input required maxLength={100} placeholder={t("Ganesh Bhosale")} />
-        </Field>
-        <Field label={t("Business Name")}>
-          <Input maxLength={120} placeholder={t("Bhosale Produce Traders")} />
-        </Field>
-        <Field label={t("Mobile")}>
-          <Input required maxLength={15} />
-        </Field>
-        <Field label={t("Email")}>
-          <Input type="email" maxLength={255} />
-        </Field>
-        <Field label={t("Buyer Type")}>
-          <Select>
-            <SelectTrigger className="w-full">
-              <SelectValue placeholder={t("Select buyer type")} />
-            </SelectTrigger>
-            <SelectContent>
-              {BUYER_TYPES.map((b) => (
-                <SelectItem key={b} value={b}>
-                  {t(b)}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </Field>
-        <Field label={t("GST / License Number")}>
-          <Input maxLength={40} placeholder={t("27ABCDE1234F1Z5")} />
-        </Field>
-        <Field label={t("District")}>
-          <DistrictSelect />
-        </Field>
-        <Field label={t("Pincode")}>
-          <Input maxLength={6} />
-        </Field>
-        <div className="sm:col-span-2">
-          <Field label={t("Products Interested In")}>
-            <Input maxLength={160} placeholder={t("Vegetables, Fruits, Grains, Pulses")} />
-          </Field>
-        </div>
-        <div className="sm:col-span-2">
-          <Field label={t("Business Address")}>
-            <Textarea maxLength={300} rows={3} placeholder={t("Market Yard, Solapur")} />
-          </Field>
-        </div>
-        <Field label={t("Password")}>
-          <Input type="password" required minLength={6} maxLength={64} />
-        </Field>
-        <Field label={t("Confirm Password")}>
-          <Input type="password" required minLength={6} maxLength={64} />
-        </Field>
-        <div className="sm:col-span-2">
-          <Field label={t("Upload License / ID")}>
-            <UploadBox label={t("Upload APMC licence, GST or ID proof")} />
-          </Field>
-          <Button type="submit" className="mt-4 h-11 w-full sm:w-auto sm:px-10">
-            {t("Create Buyer Account")}
-          </Button>
-        </div>
-      </form>
-    </Card>
-  );
-}

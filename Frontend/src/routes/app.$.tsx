@@ -1,4 +1,5 @@
 import { createFileRoute, Navigate } from "@tanstack/react-router";
+import { useEffect, useRef, useState } from "react";
 import { AppShell } from "@/components/skl/AppShell";
 import { useStore } from "@/lib/skl/store";
 import type { Role } from "@/lib/skl/data";
@@ -94,10 +95,24 @@ export const Route = createFileRoute("/app/$")({
 
 function AppSplat() {
   const { _splat } = Route.useParams();
-  const { role, hydrated } = useStore();
+  const { role, authUser, authChecked, refreshSession } = useStore();
   const path = (_splat ?? "").replace(/^\/+|\/+$/g, "");
+  const [verifying, setVerifying] = useState(true);
+  const refreshRef = useRef(refreshSession);
+  refreshRef.current = refreshSession;
 
-  if (!hydrated) {
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      await refreshRef.current();
+      if (!cancelled) setVerifying(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (!authChecked || verifying) {
     return (
       <div className="grid min-h-screen place-items-center bg-background">
         <div className="flex flex-col items-center gap-3">
@@ -108,12 +123,15 @@ function AppSplat() {
     );
   }
 
-  if (!role) return <Navigate to="/login" />;
+  // No valid backend session: token missing/invalid/expired was cleared by verify.
+  if (!role || !authUser) return <Navigate to="/login" />;
 
   const [seg = role, page = "dashboard", sub] = path.split("/");
-  const activeRole = (
-    ["farmer", "seller", "officer", "buyer", "admin"].includes(seg) ? seg : role
-  ) as Role;
+  // Role-based frontend routing: a user may only open their own role's section.
+  if (seg !== role) {
+    return <Navigate to="/app/$" params={{ _splat: `${role}/dashboard` }} />;
+  }
+  const activeRole = role as Role;
 
   return <AppShell>{renderPage(activeRole, page, sub)}</AppShell>;
 }
