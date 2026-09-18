@@ -171,9 +171,19 @@ const statusTones: Record<string, string> = {
 };
 
 export function StatusBadge({ status }: { status: string }) {
+  const mapped =
+    status === "PENDING"
+      ? "Pending"
+      : status === "IN_REVIEW"
+        ? "Under Review"
+        : status === "ANSWERED"
+          ? "Expert Replied"
+          : status === "CLOSED"
+            ? "Resolved"
+            : status;
   return (
-    <Badge variant="outline" className={cn("rounded-full font-medium", statusTones[status] ?? "")}>
-      {t(status)}
+    <Badge variant="outline" className={cn("rounded-full font-medium", statusTones[mapped] ?? "")}>
+      {t(mapped)}
     </Badge>
   );
 }

@@ -4,6 +4,8 @@ import express, { type Request, type Response } from "express";
 import { prisma } from "./lib/prisma.js";
 import authRoutes from "./routes/authRoutes.js";
 import profileRoutes from "./routes/profileRoutes.js";
+import queryRoutes from "./routes/queryRoutes.js";
+import officerQueryRoutes from "./routes/officerQueryRoutes.js";
 
 dotenv.config();
 
@@ -20,6 +22,8 @@ app.use(express.json());
 
 app.use("/api/auth", authRoutes);
 app.use("/api/profile", profileRoutes);
+app.use("/api/queries", queryRoutes);
+app.use("/api/officer", officerQueryRoutes);
 
 app.get("/api/health", (_req: Request, res: Response) => {
   res.json({
