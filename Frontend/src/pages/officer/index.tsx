@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import {
   BarChart,
@@ -53,26 +53,49 @@ import {
   StatCard,
   StatusBadge,
 } from "@/components/skl/common";
-import { useStore } from "@/lib/skl/store";
-import { VoiceAdvisoryRecorder, type VoiceAdvisory } from "@/components/skl/VoiceAdvisory";
 import {
   CHART_DATA,
-  CROPS,
-  DISTRICTS,
-  PESTICIDES,
   PLATFORM_USERS,
   cropImages,
-  type Query,
 } from "@/lib/skl/data";
+import {
+  fetchOfficerQueries,
+  formatQueryDate,
+  respondToOfficerQuery,
+  updateOfficerQueryStatus,
+  type BackendQuery,
+  type OfficerQueryFilters,
+} from "@/lib/skl/queries";
 import { t } from "@/lib/skl/i18n";
 
 const OFFICER = "Dr. S. K. Deshmukh";
+void OFFICER;
 const CHART_COLORS = ["#2E7D32", "#66BB6A", "#F9A825", "#26A69A", "#8D6E63", "#5C6BC0"];
 
 export function OfficerDashboard() {
-  const { queries } = useStore();
-  const pending = queries.filter((q) => q.status === "Pending").length;
-  const resolved = queries.filter((q) => q.status === "Resolved").length;
+  const [recent, setRecent] = useState<BackendQuery[]>([]);
+  const [pendingCount, setPendingCount] = useState(0);
+  const [answeredCount, setAnsweredCount] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const all = await fetchOfficerQueries({});
+        if (cancelled) return;
+        setRecent(all.slice(0, 4));
+        setPendingCount(all.filter((x) => x.status === "PENDING").length);
+        setAnsweredCount(all.filter((x) => x.status === "ANSWERED" || x.status === "CLOSED").length);
+      } catch {
+        if (!cancelled) {
+          setRecent([]);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   return (
     <>
@@ -93,24 +116,24 @@ export function OfficerDashboard() {
           <StatCard
             icon={ClipboardList}
             label={t("Pending Queries")}
-            value={pending}
+            value={pendingCount}
             hint={t("Awaiting first response")}
             tone="warning"
           />
         </Link>
-        <Link to="/app/$" params={{ _splat: "officer/assigned" }}>
+        <Link to="/app/$" params={{ _splat: "officer/queries" }}>
           <StatCard
             icon={ListChecks}
-            label={t("Assigned to Me")}
-            value={queries.filter((q) => q.officer === OFFICER).length}
-            hint={t("Active consultations")}
+            label={t("All Queries")}
+            value={recent.length}
+            hint={t("Latest submissions")}
           />
         </Link>
         <Link to="/app/$" params={{ _splat: "officer/reports" }}>
           <StatCard
             icon={CheckCircle2}
             label={t("Resolved This Month")}
-            value={46 + resolved}
+            value={46 + answeredCount}
             hint={t("+12% vs July")}
             tone="forest"
           />
@@ -190,28 +213,23 @@ export function OfficerDashboard() {
           }
         >
           <div className="space-y-3">
-            {queries.slice(0, 4).map((q) => (
+            {recent.length === 0 && (
+              <p className="text-sm text-muted-foreground">{t("No farmer queries yet.")}</p>
+            )}
+            {recent.map((x) => (
               <Link
-                key={q.id}
+                key={x.id}
                 to="/app/$"
                 params={{ _splat: "officer/queries" }}
                 className="flex flex-wrap items-center gap-3 rounded-xl border p-3 transition-colors hover:bg-muted/60"
               >
-                <img
-                  src={q.images[0] ?? cropImages.leaf}
-                  alt={q.crop}
-                  loading="lazy"
-                  width={64}
-                  height={64}
-                  className="size-12 rounded-lg object-cover"
-                />
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium">{t(q.title)}</p>
+                  <p className="truncate text-sm font-medium">{t(x.title)}</p>
                   <p className="text-xs text-muted-foreground">
-                    {q.farmer} • {q.crop} • {q.createdAt}
+                    {x.farmer?.name ?? "Farmer"} • {x.cropName} • {formatQueryDate(x.createdAt)}
                   </p>
                 </div>
-                <StatusBadge status={q.status} />
+                <StatusBadge status={x.status} />
               </Link>
             ))}
           </div>
@@ -255,27 +273,76 @@ export function OfficerQueriesPage({
   mine?: boolean;
   initialStatus?: string;
 }) {
-  const { queries, assignOfficer } = useStore();
+  void mine;
+  const [backendQueries, setBackendQueries] = useState<BackendQuery[]>([]);
+  const [backendLoading, setBackendLoading] = useState(true);
+  const [backendError, setBackendError] = useState<string | null>(null);
   const [q, setQ] = useState("");
   const [crop, setCrop] = useState("All");
   const [status, setStatus] = useState(initialStatus);
   const [district, setDistrict] = useState("All");
-  const [open, setOpen] = useState<Query | null>(null);
+  void district;
+  void setDistrict;
+  const [priority, setPriority] = useState("All");
+  const [openId, setOpenId] = useState<number | null>(null);
+
+  const loadOfficerQueries = useCallback(async () => {
+    setBackendLoading(true);
+    setBackendError(null);
+    try {
+      const filters: OfficerQueryFilters = {};
+      if (status === "Pending") filters.status = "PENDING";
+      else if (status === "Under Review") filters.status = "IN_REVIEW";
+      else if (status === "Expert Replied") filters.status = "ANSWERED";
+      else if (status === "Resolved") filters.status = "CLOSED";
+      if (priority === "LOW" || priority === "MEDIUM" || priority === "HIGH") filters.priority = priority;
+      if (crop !== "All") filters.cropName = crop;
+      setBackendQueries(await fetchOfficerQueries(filters));
+    } catch (err) {
+      setBackendError(err instanceof Error ? err.message : "Failed to load farmer queries.");
+    } finally {
+      setBackendLoading(false);
+    }
+  }, [status, priority, crop]);
+
+  useEffect(() => {
+    void loadOfficerQueries();
+  }, [loadOfficerQueries]);
+
+  const open = useMemo(
+    () => backendQueries.find((x) => x.id === openId) ?? null,
+    [backendQueries, openId],
+  );
+
+  const markInReview = async (query: BackendQuery) => {
+    try {
+      const updated = await updateOfficerQueryStatus(query.id, "IN_REVIEW");
+      setBackendQueries((prev) => prev.map((x) => (x.id === updated.id ? { ...x, ...updated } : x)));
+      toast.success(`Query #${query.id} marked as In Review`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to update status.");
+    }
+  };
 
   const list = useMemo(
     () =>
-      queries.filter(
-        (x) =>
-          (!mine || x.officer === OFFICER) &&
-          (crop === "All" || x.crop === crop) &&
-          (status === "All" || x.status === status) &&
-          (district === "All" || x.district === district) &&
-          (x.title + x.farmer + x.id).toLowerCase().includes(q.toLowerCase()),
+      backendQueries.filter((x) =>
+        (x.title + (x.farmer?.name ?? "") + String(x.id)).toLowerCase().includes(q.toLowerCase()),
       ),
-    [queries, mine, crop, status, district, q],
+    [backendQueries, q],
   );
 
-  if (open) return <AnswerQuery query={open} onBack={() => setOpen(null)} />;
+  if (open)
+    return (
+      <AnswerQuery
+        query={open}
+        onBack={() => setOpenId(null)}
+        onChanged={(updated) => {
+          setBackendQueries((prev) => prev.map((x) => (x.id === updated.id ? updated : x)));
+          setOpenId(updated.id);
+        }}
+      />
+    );
 
   return (
     <>
@@ -310,19 +377,11 @@ export function OfficerQueriesPage({
           />
         </div>
         <div className="grid gap-2 sm:grid-cols-3">
-          <Select value={crop} onValueChange={setCrop}>
-            <SelectTrigger>
-              <SelectValue placeholder={t("Crop")} />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="All">{t("All Crops")}</SelectItem>
-              {CROPS.map((c) => (
-                <SelectItem key={c} value={c}>
-                  {c}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <Input
+            value={crop === "All" ? "" : crop}
+            onChange={(e) => setCrop(e.target.value.trim() === "" ? "All" : e.target.value)}
+            placeholder={t("Filter by crop name")}
+          />
           <Select value={status} onValueChange={setStatus}>
             <SelectTrigger>
               <SelectValue placeholder={t("Status")} />
@@ -333,7 +392,6 @@ export function OfficerQueriesPage({
                 "Pending",
                 "Under Review",
                 "Expert Replied",
-                "Follow-up Required",
                 "Resolved",
               ].map((s) => (
                 <SelectItem key={s} value={s}>
@@ -342,23 +400,38 @@ export function OfficerQueriesPage({
               ))}
             </SelectContent>
           </Select>
-          <Select value={district} onValueChange={setDistrict}>
+          <Select value={priority} onValueChange={setPriority}>
             <SelectTrigger>
-              <SelectValue placeholder={t("District")} />
+              <SelectValue placeholder={t("Priority")} />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="All">{t("All Districts")}</SelectItem>
-              {DISTRICTS.map((d) => (
-                <SelectItem key={d} value={d}>
-                  {d}
-                </SelectItem>
-              ))}
+              <SelectItem value="All">{t("All Priorities")}</SelectItem>
+              <SelectItem value="LOW">{t("Low")}</SelectItem>
+              <SelectItem value="MEDIUM">{t("Medium")}</SelectItem>
+              <SelectItem value="HIGH">{t("High")}</SelectItem>
             </SelectContent>
           </Select>
         </div>
+        <div className="grid gap-2 sm:grid-cols-2">
+          <Input value={district === "All" ? "" : district} disabled placeholder={t("District filter coming soon")} />
+          <Button variant="outline" onClick={() => void loadOfficerQueries()}>
+            {t("Refresh")}
+          </Button>
+        </div>
       </Card>
 
-      {list.length === 0 ? (
+      {backendLoading ? (
+        <Card className="gap-0 p-8 text-center text-sm text-muted-foreground">
+          {t("Loading farmer queries...")}
+        </Card>
+      ) : backendError ? (
+        <Card className="gap-0 p-6 text-center">
+          <p className="text-sm text-destructive">{backendError}</p>
+          <Button variant="outline" size="sm" className="mt-3" onClick={() => void loadOfficerQueries()}>
+            {t("Retry")}
+          </Button>
+        </Card>
+      ) : list.length === 0 ? (
         <EmptyState
           icon={Filter}
           title={t(initialStatus === "Pending" ? "No pending queries." : "No queries match")}
@@ -369,47 +442,29 @@ export function OfficerQueriesPage({
           {list.map((x) => (
             <Card key={x.id} className="hover-lift gap-0 p-4">
               <div className="flex flex-wrap items-start gap-4">
-                <img
-                  src={x.images[0] ?? cropImages.leaf}
-                  alt={x.crop}
-                  loading="lazy"
-                  width={96}
-                  height={96}
-                  className="size-20 rounded-xl object-cover"
-                />
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
-                    <Badge variant="secondary">{x.id}</Badge>
+                    <Badge variant="secondary">#{x.id}</Badge>
                     <StatusBadge status={x.status} />
-                    {x.officer && (
-                      <Badge variant="outline" className="rounded-full">
-                        {x.officer}
-                      </Badge>
-                    )}
+                    <Badge variant="outline">{x.priority}</Badge>
                   </div>
                   <h3 className="mt-2 font-semibold">{t(x.title)}</h3>
                   <p className="line-clamp-2 text-sm text-muted-foreground">{t(x.description)}</p>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    {x.farmer} • {x.farmerVillage}, {x.district} • {x.crop} ({x.stage}) •{" "}
-                    {x.createdAt}
+                    {x.farmer?.name ?? "Farmer"} • {x.cropName} • {x.category} •{" "}
+                    {formatQueryDate(x.createdAt)}
                   </p>
                 </div>
                 <div className="flex flex-col gap-2">
-                  {!x.officer && (
-                    <Button
-                      size="sm"
-                      onClick={() => {
-                        assignOfficer(x.id, OFFICER);
-                        toast.success(t("Query assigned to you"));
-                      }}
-                    >
-                      {t("Accept Query")}
+                  {x.status === "PENDING" && (
+                    <Button size="sm" variant="outline" onClick={() => void markInReview(x)}>
+                      {t("Mark In Review")}
                     </Button>
                   )}
-                  <Button size="sm" variant="outline" onClick={() => setOpen(x)}>
+                  <Button size="sm" variant="outline" onClick={() => setOpenId(x.id)}>
                     {t("View")}
                   </Button>
-                  <Button size="sm" variant="outline" onClick={() => setOpen(x)}>
+                  <Button size="sm" onClick={() => setOpenId(x.id)}>
                     {t("Respond")}
                   </Button>
                 </div>
@@ -422,37 +477,60 @@ export function OfficerQueriesPage({
   );
 }
 
-function AnswerQuery({ query, onBack }: { query: Query; onBack: () => void }) {
-  const { answerQuery } = useStore();
-  const [voice, setVoice] = useState<VoiceAdvisory | null>(null);
+function AnswerQuery({
+  query,
+  onBack,
+  onChanged,
+}: {
+  query: BackendQuery;
+  onBack: () => void;
+  onChanged: (updated: BackendQuery) => void;
+}) {
   const [f, setF] = useState({
-    diagnosis: "",
-    treatment: "",
-    fertilizer: "",
-    fertilizerDose: "",
-    pesticide: PESTICIDES[0]?.name ?? "",
-    pesticideDose: "",
-    precautions: "Wear gloves and mask while spraying. Do not spray before rain.",
-    followUp: "Share photos after 5 days.",
+    diagnosis: query.recommendation?.diagnosis ?? "",
+    recommendation: query.recommendation?.recommendation ?? "",
+    fertilizerAdvice: query.recommendation?.fertilizerAdvice ?? "",
+    pesticideAdvice: query.recommendation?.pesticideAdvice ?? "",
+    additionalNotes: query.recommendation?.additionalNotes ?? "",
   });
+  const [submitting, setSubmitting] = useState(false);
 
-  const submit = () => {
+  const markInReview = async () => {
+    try {
+      const updated = await updateOfficerQueryStatus(query.id, "IN_REVIEW");
+      onChanged(updated);
+      toast.success(`Query #${query.id} marked as In Review`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to update status.");
+    }
+  };
+
+  const submit = async () => {
     if (f.diagnosis.trim().length < 5) {
       toast.error("Enter a diagnosis");
       return;
     }
-    if (f.treatment.trim().length < 10) {
+    if (f.recommendation.trim().length < 10) {
       toast.error("Describe the treatment plan");
       return;
     }
-    answerQuery(query.id, {
-      ...f,
-      officer: OFFICER,
-      date: "21 Aug 2026",
-      ...(voice ? { voiceAdvisory: voice } : {}),
-    });
-    toast.success("Recommendation sent to farmer");
-    onBack();
+    setSubmitting(true);
+    try {
+      const result = await respondToOfficerQuery(query.id, {
+        diagnosis: f.diagnosis.trim(),
+        recommendation: f.recommendation.trim(),
+        fertilizerAdvice: f.fertilizerAdvice.trim(),
+        pesticideAdvice: f.pesticideAdvice.trim(),
+        additionalNotes: f.additionalNotes.trim(),
+      });
+      onChanged(result.query);
+      toast.success("Recommendation sent to farmer");
+      onBack();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to submit recommendation.");
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -462,56 +540,44 @@ function AnswerQuery({ query, onBack }: { query: Query; onBack: () => void }) {
       </Button>
       <PageHeader
         title={t(query.title)}
-        subtitle={`${query.farmer} • ${query.farmerVillage}, ${query.district} • ${query.crop}`}
-        breadcrumb={["Queries", query.id]}
+        subtitle={`#${query.id} • ${query.farmer?.name ?? "Farmer"} • ${query.cropName} • ${query.category}`}
+        breadcrumb={["Queries", `#${query.id}`]}
       />
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        <StatusBadge status={query.status} />
+        <Badge variant="outline">{query.priority}</Badge>
+        {query.status === "PENDING" && (
+          <Button size="sm" variant="outline" onClick={() => void markInReview()}>
+            {t("Mark In Review")}
+          </Button>
+        )}
+      </div>
       <div className="grid gap-4 lg:grid-cols-2">
         <div className="space-y-4">
           <SectionCard title={t("Farmer Submission")}>
-            <p className="text-sm">{t(query.description)}</p>
-            <div className="mt-3 grid grid-cols-3 gap-2">
-              {query.images.map((img, i) => (
-                <img
-                  key={i}
-                  src={img}
-                  alt={`Crop photo ${i + 1}`}
-                  loading="lazy"
-                  width={200}
-                  height={150}
-                  className="h-24 w-full rounded-lg object-cover"
-                />
-              ))}
-            </div>
-            {query.voiceNote && (
-              <div className="mt-3 flex items-center gap-3 rounded-xl bg-pale/60 p-3 text-sm">
-                🎙️ Voice note ({query.voiceNote}) —{" "}
-                <button
-                  className="text-primary underline"
-                  onClick={() => toast.info("Playing voice note (demo)")}
-                >
-                  {t("Play")}
-                </button>
+            <dl className="grid gap-3 text-sm sm:grid-cols-2">
+              <div>
+                <dt className="text-xs text-muted-foreground">{t("Farmer")}</dt>
+                <dd className="font-medium">{query.farmer?.name ?? "—"}</dd>
               </div>
-            )}
-            {query.extra && (
-              <dl className="mt-3 grid grid-cols-2 gap-3 text-sm">
-                <div>
-                  <dt className="text-xs text-muted-foreground">{t("Irrigation")}</dt>
-                  <dd>{query.extra.irrigation}</dd>
-                </div>
-                <div>
-                  <dt className="text-xs text-muted-foreground">{t("Soil")}</dt>
-                  <dd>{query.extra.soil}</dd>
-                </div>
-                <div>
-                  <dt className="text-xs text-muted-foreground">{t("Last Fertilizer")}</dt>
-                  <dd>{query.extra.lastFertilizer}</dd>
-                </div>
-                <div>
-                  <dt className="text-xs text-muted-foreground">{t("Last Pesticide")}</dt>
-                  <dd>{query.extra.lastPesticide}</dd>
-                </div>
-              </dl>
+              <div>
+                <dt className="text-xs text-muted-foreground">{t("Crop")}</dt>
+                <dd className="font-medium">{query.cropName}</dd>
+              </div>
+              <div>
+                <dt className="text-xs text-muted-foreground">{t("Category")}</dt>
+                <dd className="font-medium">{query.category}</dd>
+              </div>
+              <div>
+                <dt className="text-xs text-muted-foreground">{t("Submitted")}</dt>
+                <dd className="font-medium">{formatQueryDate(query.createdAt)}</dd>
+              </div>
+            </dl>
+            <p className="mt-3 text-sm">{t(query.description)}</p>
+            {query.recommendation && (
+              <p className="mt-3 rounded-xl bg-warning/10 p-3 text-xs text-muted-foreground">
+                {t("This query already has a recommendation. Submitting again is blocked by the server.")}
+              </p>
             )}
           </SectionCard>
           <SectionCard title={t("Similar Past Cases")}>
@@ -537,17 +603,17 @@ function AnswerQuery({ query, onBack }: { query: Query; onBack: () => void }) {
 
         <SectionCard
           title={t("Expert Recommendation")}
-          desc={t("This is sent instantly to the farmer's app and SMS.")}
+          desc={t("Saved to PostgreSQL and shown to the farmer immediately on refresh.")}
         >
           <div className="grid gap-3">
             <div>
               <Label>{t("Diagnosis")}</Label>
               <Input
                 className="mt-1.5"
-                maxLength={120}
+                maxLength={5000}
                 value={f.diagnosis}
                 onChange={(e) => setF({ ...f, diagnosis: e.target.value })}
-                placeholder={t("e.g. Yellow Mosaic Virus with sulphur deficiency")}
+                placeholder={t("e.g. Possible nitrogen deficiency")}
               />
             </div>
             <div>
@@ -555,93 +621,48 @@ function AnswerQuery({ query, onBack }: { query: Query; onBack: () => void }) {
               <Textarea
                 className="mt-1.5"
                 rows={4}
-                maxLength={800}
-                value={f.treatment}
-                onChange={(e) => setF({ ...f, treatment: e.target.value })}
+                maxLength={5000}
+                value={f.recommendation}
+                onChange={(e) => setF({ ...f, recommendation: e.target.value })}
                 placeholder={t("Step-by-step action for the farmer")}
               />
             </div>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div>
-                <Label>{t("Fertilizer")}</Label>
-                <Input
-                  className="mt-1.5"
-                  maxLength={80}
-                  value={f.fertilizer}
-                  onChange={(e) => setF({ ...f, fertilizer: e.target.value })}
-                  placeholder={t("Bentonite Sulphur")}
-                />
-              </div>
-              <div>
-                <Label>{t("Dose")}</Label>
-                <Input
-                  className="mt-1.5"
-                  maxLength={60}
-                  value={f.fertilizerDose}
-                  onChange={(e) => setF({ ...f, fertilizerDose: e.target.value })}
-                  placeholder={t("10 kg/acre")}
-                />
-              </div>
-            </div>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div>
-                <Label>{t("Pesticide")}</Label>
-                <Select value={f.pesticide} onValueChange={(v) => setF({ ...f, pesticide: v })}>
-                  <SelectTrigger className="mt-1.5 w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {PESTICIDES.map((p) => (
-                      <SelectItem key={p.name} value={p.name}>
-                        {p.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label>{t("Dose")}</Label>
-                <Input
-                  className="mt-1.5"
-                  maxLength={60}
-                  value={f.pesticideDose}
-                  onChange={(e) => setF({ ...f, pesticideDose: e.target.value })}
-                  placeholder={t("0.3 ml/litre")}
-                />
-              </div>
-            </div>
             <div>
-              <Label>{t("Precautions")}</Label>
+              <Label>{t("Fertilizer Advice (optional)")}</Label>
               <Textarea
                 className="mt-1.5"
                 rows={2}
-                maxLength={400}
-                value={f.precautions}
-                onChange={(e) => setF({ ...f, precautions: e.target.value })}
+                maxLength={5000}
+                value={f.fertilizerAdvice}
+                onChange={(e) => setF({ ...f, fertilizerAdvice: e.target.value })}
+                placeholder={t("Fertilizer guidance")}
               />
             </div>
             <div>
-              <Label>{t("Follow-up Instruction")}</Label>
-              <Input
+              <Label>{t("Pesticide Advice (optional)")}</Label>
+              <Textarea
                 className="mt-1.5"
-                maxLength={160}
-                value={f.followUp}
-                onChange={(e) => setF({ ...f, followUp: e.target.value })}
+                rows={2}
+                maxLength={5000}
+                value={f.pesticideAdvice}
+                onChange={(e) => setF({ ...f, pesticideAdvice: e.target.value })}
+                placeholder={t("Pesticide guidance")}
               />
             </div>
-            <VoiceAdvisoryRecorder value={voice} onChange={setVoice} />
+            <div>
+              <Label>{t("Additional Notes (optional)")}</Label>
+              <Textarea
+                className="mt-1.5"
+                rows={2}
+                maxLength={5000}
+                value={f.additionalNotes}
+                onChange={(e) => setF({ ...f, additionalNotes: e.target.value })}
+                placeholder={t("Irrigation, follow-up, safety notes")}
+              />
+            </div>
             <div className="flex flex-wrap gap-2">
-              <Button className="gap-2" onClick={submit}>
-                <Send className="size-4" /> {t("Send Recommendation")}
-              </Button>
-              <Button variant="outline" onClick={() => toast.success("Saved as draft")}>
-                {t("Save Draft")}
-              </Button>
-              <Button
-                variant="outline"
-                onClick={() => toast.info("Field visit scheduled for 24 Aug 2026")}
-              >
-                {t("Schedule Field Visit")}
+              <Button className="gap-2" onClick={() => void submit()} disabled={submitting}>
+                <Send className="size-4" /> {submitting ? t("Sending...") : t("Send Recommendation")}
               </Button>
             </div>
           </div>
@@ -965,12 +986,33 @@ export function OfficerFarmersPage() {
 }
 
 function FarmerDirectory() {
-  const { queries } = useStore();
   const [q, setQ] = useState("");
+  const [queryCounts, setQueryCounts] = useState<Record<string, number>>({});
   const farmers = PLATFORM_USERS.filter((u) => u.role === "Farmer");
   const list = farmers.filter((f) =>
     `${f.name} ${f.district} ${f.mobile}`.toLowerCase().includes(q.toLowerCase()),
   );
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const all = await fetchOfficerQueries({});
+        if (cancelled) return;
+        const counts: Record<string, number> = {};
+        for (const item of all) {
+          const name = item.farmer?.name ?? "";
+          if (name) counts[name] = (counts[name] ?? 0) + 1;
+        }
+        setQueryCounts(counts);
+      } catch {
+        if (!cancelled) setQueryCounts({});
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   return (
     <SectionCard title={t("Farmer Directory")} className="mt-4">
       <div className="relative mb-3">
@@ -1000,7 +1042,7 @@ function FarmerDirectory() {
                 {f.mobile} • {f.district}
               </span>
               <Badge variant="secondary" className="ml-auto">
-                {queries.filter((x) => x.farmer === f.name).length} {t("Queries")}
+                {queryCounts[f.name] ?? 0} {t("Queries")}
               </Badge>
               <StatusBadge status={f.status} />
             </div>

@@ -1,25 +1,13 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
-import {
-  CheckCircle2,
-  ImagePlus,
-  Info,
-  MapPin,
-  Mic,
-  Play,
-  Scan,
-  Square,
-  Trash2,
-  Upload,
-  X,
-} from "lucide-react";
+import { CheckCircle2, Info, Scan } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { Progress } from "@/components/ui/progress";
+import { Upload, X, ImagePlus } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -30,108 +18,33 @@ import {
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { PageHeader, SectionCard } from "@/components/skl/common";
-import { useStore } from "@/lib/skl/store";
-import { CROPS, STAGES, cropImages, type Query } from "@/lib/skl/data";
+import { CROPS, STAGES, cropImages } from "@/lib/skl/data";
+import {
+  QUERY_CATEGORIES,
+  createFarmerQuery,
+  type BackendQueryPriority,
+} from "@/lib/skl/queries";
 import { t } from "@/lib/skl/i18n";
 
 const SAMPLE_IMAGES = [cropImages.leaf, cropImages.Soybean, cropImages.Cotton, cropImages.Onion];
 
-function VoiceRecorder({ onChange }: { onChange: (v: string | null) => void }) {
-  const [rec, setRec] = useState(false);
-  const [secs, setSecs] = useState(0);
-  const [saved, setSaved] = useState<string | null>(null);
-  const timer = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  useEffect(
-    () => () => {
-      if (timer.current) clearInterval(timer.current);
-    },
-    [],
-  );
-
-  const start = () => {
-    setRec(true);
-    setSecs(0);
-    timer.current = setInterval(() => setSecs((s) => s + 1), 1000);
-  };
-  const stop = () => {
-    if (timer.current) clearInterval(timer.current);
-    setRec(false);
-    const v = `00:${String(secs).padStart(2, "0")}`;
-    setSaved(v);
-    onChange(v);
-    toast.success("Voice note attached successfully");
-  };
-
-  return (
-    <div className="rounded-xl border bg-muted/30 p-4">
-      {!rec && !saved && (
-        <Button type="button" variant="outline" onClick={start} className="gap-2">
-          <Mic className="size-4" /> {t("\ud83c\udf99 Record Voice")}
-        </Button>
-      )}
-      {rec && (
-        <div className="flex flex-wrap items-center gap-3">
-          <span className="flex items-center gap-2 text-sm font-medium text-destructive">
-            <span className="size-2 animate-pulse rounded-full bg-destructive" /> Recording... 00:
-            {String(secs).padStart(2, "0")}
-          </span>
-          <Progress value={Math.min(100, secs * 5)} className="h-1.5 w-32" />
-          <Button type="button" size="sm" onClick={stop} className="gap-1.5">
-            <Square className="size-3.5" /> {t("Stop")}
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant="ghost"
-            onClick={() => {
-              if (timer.current) clearInterval(timer.current);
-              setRec(false);
-            }}
-          >
-            <Trash2 className="size-3.5" /> {t("Delete")}
-          </Button>
-        </div>
-      )}
-      {saved && !rec && (
-        <div className="flex flex-wrap items-center gap-3">
-          <Badge className="rounded-full">{t("Voice note attached successfully")}</Badge>
-          <span className="text-sm text-muted-foreground">Duration {saved}</span>
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            onClick={() => toast.info("Playing voice note (demo)")}
-            className="gap-1.5"
-          >
-            <Play className="size-3.5" /> {t("Play")}
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant="ghost"
-            onClick={() => {
-              setSaved(null);
-              onChange(null);
-            }}
-            className="gap-1.5"
-          >
-            <Trash2 className="size-3.5" /> {t("Delete")}
-          </Button>
-        </div>
-      )}
-    </div>
-  );
-}
-
 export function ImageUploader({
   images,
   setImages,
+  disabledText,
 }: {
   images: string[];
   setImages: (i: string[]) => void;
+  disabledText?: string;
 }) {
   const [preview, setPreview] = useState<string | null>(null);
+  if (disabledText) {
+    return (
+      <p className="rounded-xl border border-dashed bg-muted/30 p-4 text-sm text-muted-foreground">
+        {disabledText}
+      </p>
+    );
+  }
   const add = () => {
     if (images.length >= 4) {
       toast.error("You can upload up to 4 images");
@@ -201,63 +114,40 @@ export function ImageUploader({
 }
 
 export function AskQuestionPage() {
-  const { addQuery } = useStore();
   const navigate = useNavigate();
   const [crop, setCrop] = useState("Soybean");
-  const [stage, setStage] = useState("Vegetative");
+  const [category, setCategory] = useState("Crop Disease");
+  const [priority, setPriority] = useState<BackendQueryPriority>("MEDIUM");
   const [title, setTitle] = useState("");
   const [desc, setDesc] = useState("");
-  const [images, setImages] = useState<string[]>([]);
-  const [voice, setVoice] = useState<string | null>(null);
-  const [done, setDone] = useState<string | null>(null);
-  const [location, setLocation] = useState({
-    village: "Akluj",
-    district: "Solapur",
-    state: "Maharashtra",
-  });
+  const [done, setDone] = useState<number | null>(null);
+  const [submitting, setSubmitting] = useState(false);
 
-  const submit = () => {
+  const submit = async () => {
     if (title.trim().length < 5) {
       toast.error("Please enter a problem title (min 5 characters)");
       return;
     }
-    if (desc.trim().length < 20) {
-      toast.error("Please describe the problem in at least 20 characters");
+    if (desc.trim().length < 10) {
+      toast.error("Please describe the problem in at least 10 characters");
       return;
     }
-    const id = `QRY-2026-${1045 + Math.floor(Math.random() * 400)}`;
-    const q: Query = {
-      id,
-      farmer: "Ramesh Patil",
-      farmerVillage: location.village,
-      district: location.district,
-      crop,
-      stage,
-      title: title.trim(),
-      description: desc.trim(),
-      images: images.length ? images : [cropImages.leaf],
-      ...(voice ? { voiceNote: voice } : {}),
-      createdAt: "21 Aug 2026",
-      updatedAt: "21 Aug 2026",
-      officer: null,
-      status: "Pending",
-      extra: {
-        irrigation: "Drip",
-        soil: "Medium Black Soil",
-        lastFertilizer: "DAP at sowing",
-        lastPesticide: "None in last 30 days",
-      },
-      timeline: [
-        { label: "Query Submitted", date: "21 Aug 2026", done: true },
-        { label: "Officer Assigned", date: "Pending", done: false },
-        { label: "Under Review", date: "Pending", done: false },
-        { label: "Recommendation Received", date: "Pending", done: false },
-        { label: "Follow-up", date: "Pending", done: false },
-        { label: "Resolved", date: "Pending", done: false },
-      ],
-    };
-    addQuery(q);
-    setDone(id);
+    setSubmitting(true);
+    try {
+      const created = await createFarmerQuery({
+        title: title.trim(),
+        cropName: crop.trim(),
+        category: category.trim(),
+        description: desc.trim(),
+        priority,
+      });
+      setDone(created.id);
+      toast.success("Query submitted successfully");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to submit query.");
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -287,17 +177,30 @@ export function AskQuestionPage() {
                 </Select>
               </div>
               <div>
-                <Label>{t("Crop Stage")}</Label>
-                <Select value={stage} onValueChange={setStage}>
+                <Label>{t("Category")}</Label>
+                <Select value={category} onValueChange={setCategory}>
                   <SelectTrigger className="mt-1.5 w-full">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {STAGES.map((s) => (
+                    {QUERY_CATEGORIES.map((s) => (
                       <SelectItem key={s} value={s}>
                         {s}
                       </SelectItem>
                     ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>{t("Priority")}</Label>
+                <Select value={priority} onValueChange={(v) => setPriority(v as BackendQueryPriority)}>
+                  <SelectTrigger className="mt-1.5 w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="LOW">Low</SelectItem>
+                    <SelectItem value="MEDIUM">Medium</SelectItem>
+                    <SelectItem value="HIGH">High</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -306,7 +209,7 @@ export function AskQuestionPage() {
                 <Input
                   id="qtitle"
                   value={title}
-                  maxLength={120}
+                  maxLength={200}
                   onChange={(e) => setTitle(e.target.value)}
                   className="mt-1.5"
                   placeholder={t("Leaves are turning yellow")}
@@ -317,7 +220,7 @@ export function AskQuestionPage() {
                 <Textarea
                   id="qdesc"
                   value={desc}
-                  maxLength={1000}
+                  maxLength={5000}
                   rows={6}
                   onChange={(e) => setDesc(e.target.value)}
                   className="mt-1.5"
@@ -326,7 +229,7 @@ export function AskQuestionPage() {
                   )}
                 />
                 <p className="mt-1 text-right text-xs text-muted-foreground">
-                  {desc.length}/1000 characters
+                  {desc.length}/5000 characters
                 </p>
               </div>
             </div>
@@ -334,45 +237,23 @@ export function AskQuestionPage() {
 
           <SectionCard
             title={t("Voice Query")}
-            desc={t("Prefer speaking? Record your problem in your language.")}
+            desc={t("Coming soon — text-based queries only in this version.")}
           >
-            <VoiceRecorder onChange={setVoice} />
+            <p className="rounded-xl border border-dashed bg-muted/30 p-4 text-sm text-muted-foreground">
+              {t("Voice upload is coming soon. Please describe your problem in text for this version.")}
+            </p>
           </SectionCard>
 
-          <SectionCard title={t("Upload Crop Images")} desc={t("Up to 4 photographs")}>
-            <ImageUploader images={images} setImages={setImages} />
+          <SectionCard title={t("Upload Crop Images")} desc={t("Coming soon")}>
+            <ImageUploader
+              images={[]}
+              setImages={() => undefined}
+              disabledText={t("Image upload is coming soon. Please submit a text-only query for this version.")}
+            />
           </SectionCard>
         </div>
 
         <div className="space-y-4">
-          <SectionCard title={t("Query Location")}>
-            <div className="flex items-start gap-2 text-sm">
-              <MapPin className="mt-0.5 size-4 text-primary" />
-              <div>
-                <p>
-                  {t("Village:")} <b>{location.village}</b>
-                </p>
-                <p>
-                  {t("District:")} <b>{location.district}</b>
-                </p>
-                <p>
-                  {t("State:")} <b>{location.state}</b>
-                </p>
-              </div>
-            </div>
-            <Button
-              variant="outline"
-              size="sm"
-              className="mt-3 w-full"
-              onClick={() => {
-                setLocation({ village: "Sangola", district: "Solapur", state: "Maharashtra" });
-                toast.success("Location updated to Sangola, Solapur");
-              }}
-            >
-              {t("Update Location")}
-            </Button>
-          </SectionCard>
-
           <Card className="gap-0 border-primary/30 bg-pale/60 p-4">
             <p className="flex items-start gap-2 text-sm">
               <Info className="mt-0.5 size-4 shrink-0 text-primary" />
@@ -380,26 +261,26 @@ export function AskQuestionPage() {
             </p>
           </Card>
 
-          <Button size="lg" className="h-12 w-full text-base" onClick={submit}>
-            {t("Submit Question")}
+          <Button size="lg" className="h-12 w-full text-base" onClick={submit} disabled={submitting}>
+            {submitting ? t("Submitting...") : t("Submit Question")}
           </Button>
 
           <SectionCard title={t("Tips for a faster reply")}>
             <ul className="space-y-2 text-sm text-muted-foreground">
-              <li>{t("\ud83d\udcf7 Add at least 2 close-up photos in daylight.")}</li>
-              <li>{t("\ud83d\udd52 Mention when the symptoms first appeared.")}</li>
-              <li>{t("\ud83d\udca7 Share irrigation type and last fertilizer used.")}</li>
+              <li>{t("Mention when the symptoms first appeared.")}</li>
+              <li>{t("Share irrigation type and last fertilizer used.")}</li>
+              <li>{t("Image and voice uploads are coming soon.")}</li>
             </ul>
           </SectionCard>
         </div>
       </div>
 
-      <Dialog open={!!done} onOpenChange={() => setDone(null)}>
+      <Dialog open={done !== null} onOpenChange={() => setDone(null)}>
         <DialogContent className="text-center sm:max-w-md">
           <CheckCircle2 className="mx-auto size-14 text-primary" />
           <h2 className="text-xl font-bold">{t("Question Submitted Successfully")}</h2>
           <p className="text-sm text-muted-foreground">{t("Query ID")}</p>
-          <p className="text-lg font-bold text-forest">{done}</p>
+          <p className="text-lg font-bold text-forest">#{done}</p>
           <Badge
             variant="outline"
             className="mx-auto rounded-full border-warning/40 bg-warning/10 text-warning"
