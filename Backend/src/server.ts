@@ -4,6 +4,7 @@ import express, { type Request, type Response } from "express";
 import { prisma } from "./lib/prisma.js";
 import authRoutes from "./routes/authRoutes.js";
 import profileRoutes from "./routes/profileRoutes.js";
+import productRoutes from "./routes/productRoutes.js";
 import queryRoutes from "./routes/queryRoutes.js";
 import officerQueryRoutes from "./routes/officerQueryRoutes.js";
 
@@ -22,6 +23,7 @@ app.use(express.json());
 
 app.use("/api/auth", authRoutes);
 app.use("/api/profile", profileRoutes);
+app.use("/api/products", productRoutes);
 app.use("/api/queries", queryRoutes);
 app.use("/api/officer", officerQueryRoutes);
 

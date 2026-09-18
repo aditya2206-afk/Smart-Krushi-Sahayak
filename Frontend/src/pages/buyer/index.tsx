@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import {
   ArrowLeft,
@@ -7,6 +7,7 @@ import {
   Heart,
   IndianRupee,
   Leaf,
+  Loader2,
   MapPin,
   MessageSquare,
   Package,
@@ -68,6 +69,17 @@ import {
   type OrderStatus,
   type Product,
 } from "@/lib/skl/data";
+import {
+  backendCategoryLabel,
+  backendStatusLabel,
+  categoryPlaceholderImage,
+  fetchMarketplaceProducts,
+  fetchProductById,
+  friendlyProductError,
+  sellerDisplayName,
+  type BackendProduct,
+  type BackendProductCategory,
+} from "@/lib/skl/products";
 import { t } from "@/lib/skl/i18n";
 
 export const BUYER = "Mahesh Traders";
@@ -118,7 +130,160 @@ function priceGap(p: Product) {
 
 /* ------------------------------------------------------------------ buy now */
 
+function MarketplaceCard({
+  product,
+  onBuy,
+  onContact,
+}: {
+  product: BackendProduct;
+  onBuy: () => void;
+  onContact: () => void;
+}) {
+  return (
+    <Card className="overflow-hidden p-0">
+      <div className="relative">
+        <Link to="/app/$" params={{ _splat: `buyer/marketplace/${product.id}` }}>
+          <img
+            src={categoryPlaceholderImage(product.name)}
+            alt={product.name}
+            loading="lazy"
+            width={640}
+            height={360}
+            className="h-44 w-full object-cover"
+          />
+        </Link>
+        <Badge className="absolute top-3 left-3 rounded-full bg-white/95 text-forest">
+          {t(backendCategoryLabel(product.category))}
+        </Badge>
+        <Badge className="absolute top-3 right-3 rounded-full bg-forest text-white">
+          {t(backendStatusLabel(product.status))}
+        </Badge>
+      </div>
+      <div className="space-y-2 p-4">
+        <div className="flex items-start justify-between gap-2">
+          <div>
+            <h3 className="font-semibold">{product.name}</h3>
+            <p className="text-xs text-muted-foreground">
+              {t("Grade")} {product.grade?.trim() ? product.grade : "—"} ·{" "}
+              {sellerDisplayName(product.seller)}
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-1 text-xs text-muted-foreground">
+          <MapPin className="size-3.5" /> {product.location}
+        </div>
+        <div className="flex items-center justify-between text-sm">
+          <span className="font-bold text-forest">{unitPrice(product.price, product.unit)}</span>
+          <span className="text-xs text-muted-foreground">
+            {t("Available")}: {product.quantity} {t(product.unit)}
+          </span>
+        </div>
+        <div className="flex gap-2 pt-1">
+          <Button size="sm" className="flex-1" onClick={onBuy}>
+            {t("Buy Now")}
+          </Button>
+          <Button size="sm" variant="outline" className="flex-1" onClick={onContact}>
+            {t("Contact")}
+          </Button>
+          <Link
+            to="/app/$"
+            params={{ _splat: `buyer/marketplace/${product.id}` }}
+            className="inline-flex h-8 items-center rounded-md border px-3 text-xs font-medium"
+          >
+            {t("Details")}
+          </Link>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+function MarketplaceBuyDialog({
+  productId,
+  onClose,
+}: {
+  productId: number | null;
+  onClose: () => void;
+}) {
+  const [product, setProduct] = useState<BackendProduct | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    if (productId === null) {
+      setProduct(null);
+      setError("");
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        setLoading(true);
+        setError("");
+        const data = await fetchProductById(productId);
+        if (!cancelled) setProduct(data);
+      } catch (err: unknown) {
+        if (!cancelled) setError(friendlyProductError(err, t("Could not load product.")));
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [productId]);
+  if (productId === null) return null;
+  return (
+    <Dialog open onOpenChange={onClose}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>{t("Ordering is coming soon")}</DialogTitle>
+          <DialogDescription>
+            {t("Checkout, cart and payments arrive in a future module. No order is placed here.")}
+          </DialogDescription>
+        </DialogHeader>
+        {loading && (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="size-4 animate-spin" /> {t("Loading product...")}
+          </div>
+        )}
+        {error && <p className="text-sm text-destructive">{error}</p>}
+        {product && (
+          <dl className="grid grid-cols-2 gap-3 text-sm">
+            <Row label={t("Product")} value={product.name} />
+            <Row label={t("Seller")} value={sellerDisplayName(product.seller)} />
+            <Row
+              label={t("Available Quantity")}
+              value={`${product.quantity} ${t(product.unit)}`}
+            />
+            <Row label={t("Price Per Unit")} value={unitPrice(product.price, product.unit)} />
+          </dl>
+        )}
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            {t("Close")}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function LegacyBuyNowDialog({ product, onClose }: { product: Product | null; onClose: () => void }) {
+  void product;
+  void onClose;
+  return null;
+}
+
 function BuyNowDialog({ product, onClose }: { product: Product | null; onClose: () => void }) {
+  void legacyBuyNowBody;
+  return <LegacyBuyNowDialog product={product} onClose={onClose} />;
+}
+
+function legacyBuyNowBody(_args: {
+  product: Product | null;
+  onClose: () => void;
+}) {
+  const { product: legacyProduct, onClose } = _args;
   const { placeOrder } = useStore();
   const navigate = useNavigate();
   const [qty, setQty] = useState("");
@@ -127,6 +292,7 @@ function BuyNowDialog({ product, onClose }: { product: Product | null; onClose: 
   const [address, setAddress] = useState(BUYER_ADDRESS);
   const [placed, setPlaced] = useState<Order | null>(null);
 
+  const product = legacyProduct;
   if (!product) return null;
   const quantity = Number(qty || product.minOrder);
   const subtotal = quantity * product.price;
@@ -342,7 +508,52 @@ function Row({ label, value }: { label: string; value: string }) {
 
 /* ------------------------------------------------------------------ enquiry */
 
+function MarketplaceContactDialog({
+  product,
+  onClose,
+}: {
+  product: BackendProduct | null;
+  onClose: () => void;
+}) {
+  if (!product) return null;
+  return (
+    <Dialog open onOpenChange={onClose}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>
+            {t("Contact Seller")} — {sellerDisplayName(product.seller)}
+          </DialogTitle>
+          <DialogDescription>
+            {t("Seller enquiries and messaging arrive in a future module.")}
+          </DialogDescription>
+        </DialogHeader>
+        <dl className="grid grid-cols-2 gap-3 text-sm">
+          <Row label={t("Product")} value={product.name} />
+          <Row label={t("Seller")} value={sellerDisplayName(product.seller)} />
+          <Row label={t("Location")} value={product.location} />
+          <Row label={t("Price Per Unit")} value={unitPrice(product.price, product.unit)} />
+        </dl>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            {t("Close")}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function ContactSellerDialog({
+  product,
+  onClose,
+}: {
+  product: Product | null;
+  onClose: () => void;
+}) {
+  return <LegacyContactSellerDialog product={product} onClose={onClose} />;
+}
+
+function LegacyContactSellerDialog({
   product,
   onClose,
 }: {
@@ -627,51 +838,83 @@ function ProduceCard({
 
 /* ------------------------------------------------------------------ marketplace */
 
+const BACKEND_CATEGORY_LABELS: { value: string; label: string }[] = [
+  { value: "VEGETABLE", label: "Vegetable" },
+  { value: "FRUIT", label: "Fruit" },
+  { value: "GRAIN", label: "Grain" },
+  { value: "PULSE", label: "Pulse" },
+  { value: "COMMERCIAL_CROP", label: "Commercial Crop" },
+  { value: "OTHER", label: "Other" },
+];
+
+function categoryValue(p: BackendProduct): string {
+  return p.category;
+}
+
 export function BuyerMarketplace() {
-  const { products } = useStore();
   const search = useAppSearch();
   const [q, setQ] = useState(search.use ?? "");
   const [cat, setCat] = useState("All");
-  const [location, setLocation] = useState("All");
-  const [market, setMarket] = useState("All");
+  const [location, setLocation] = useState("");
   const [grade, setGrade] = useState("All");
-  const [availability, setAvailability] = useState("All");
   const [maxPrice, setMaxPrice] = useState("");
   const [sort, setSort] = useState(SORTS[0]!);
-  const [buy, setBuy] = useState<Product | null>(null);
-  const [contact, setContact] = useState<Product | null>(null);
+  const [listings, setListings] = useState<BackendProduct[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+  const [buyId, setBuyId] = useState<number | null>(null);
+  const [contact, setContact] = useState<BackendProduct | null>(null);
 
-  const locations = [...new Set(products.map((p) => p.location))];
-  const grades = [...new Set(products.map((p) => p.grade))];
+  const load = async () => {
+    try {
+      setLoading(true);
+      setLoadError("");
+      const data = await fetchMarketplaceProducts({
+        ...(q.trim() ? { search: q.trim() } : {}),
+        ...(cat !== "All" ? { category: cat as BackendProductCategory } : {}),
+        ...(location.trim() ? { location: location.trim() } : {}),
+        ...(maxPrice.trim() ? { maxPrice: maxPrice.trim() } : {}),
+      });
+      setListings(data);
+    } catch (err: unknown) {
+      setLoadError(friendlyProductError(err, t("Could not load marketplace.")));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      void load();
+    }, 400);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [q, cat, location, maxPrice]);
+
+  const grades = useMemo(() => [...new Set(listings.map((p) => p.grade ?? "").filter(Boolean))], [listings]);
 
   const list = useMemo(() => {
-    const filtered = products.filter(
-      (p) =>
-        p.active &&
-        `${p.name} ${p.variety} ${p.seller} ${p.market}`.toLowerCase().includes(q.toLowerCase()) &&
-        (cat === "All" || p.category === cat) &&
-        (location === "All" || p.location === location) &&
-        (market === "All" || p.market === market) &&
-        (grade === "All" || p.grade === grade) &&
-        (availability === "All" || (availability === "Available" ? p.stock > 0 : p.stock <= 0)) &&
-        (!maxPrice || p.price <= Number(maxPrice)),
+    const filtered = listings.filter(
+      (p) => grade === "All" || (p.grade ?? "") === grade,
     );
     const sorted = [...filtered];
     if (sort === "Price: Low to High") sorted.sort((a, b) => a.price - b.price);
     if (sort === "Price: High to Low") sorted.sort((a, b) => b.price - a.price);
-    if (sort === "Highest Rated") sorted.sort((a, b) => b.rating - a.rating);
-    if (sort === "Newest") sorted.sort((a, b) => b.id.localeCompare(a.id));
+    if (sort === "Newest") sorted.sort((a, b) => b.id - a.id);
     if (sort === "Nearest Seller") sorted.sort((a, b) => a.location.localeCompare(b.location));
     return sorted;
-  }, [products, q, cat, location, market, grade, availability, maxPrice, sort]);
+  }, [listings, grade, sort]);
 
   const clear = () => {
     setQ("");
     setCat("All");
-    setLocation("All");
-    setMarket("All");
+    setLocation("");
     setGrade("All");
-    setAvailability("All");
     setMaxPrice("");
   };
 
@@ -702,28 +945,17 @@ export function BuyerMarketplace() {
           <Pick
             value={cat}
             onChange={setCat}
-            options={["All", ...PRODUCE_CATEGORIES]}
+            options={["All", ...BACKEND_CATEGORY_LABELS.map((c) => c.value)]}
             label={t("Category")}
           />
-          <Pick
-            value={location}
-            onChange={setLocation}
-            options={["All", ...locations]}
-            label={t("Location")}
-          />
-          <Pick
-            value={market}
-            onChange={setMarket}
-            options={["All", ...MARKETS]}
-            label={t("Market")}
-          />
+          <div className="flex gap-2">
+            <Input
+              value={location}
+              onChange={(e) => setLocation(e.target.value)}
+              placeholder={t("Location")}
+            />
+          </div>
           <Pick value={grade} onChange={setGrade} options={["All", ...grades]} label={t("Grade")} />
-          <Pick
-            value={availability}
-            onChange={setAvailability}
-            options={["All", "Available", "Sold Out"]}
-            label={t("Availability")}
-          />
           <div className="flex gap-2">
             <Input
               type="number"
@@ -734,6 +966,7 @@ export function BuyerMarketplace() {
             <Pick value={sort} onChange={setSort} options={SORTS} label={t("Sort")} />
           </div>
         </div>
+        {loadError && <p className="mt-3 text-sm text-destructive">{loadError}</p>}
         <div className="mt-3 flex items-center gap-3 text-xs text-muted-foreground">
           <span>
             {list.length} {t("produce listings match your filters")}
@@ -744,30 +977,34 @@ export function BuyerMarketplace() {
         </div>
       </Card>
 
-      {list.length === 0 ? (
+      {loading ? (
+        <div className="mt-4 flex items-center gap-2 text-sm text-muted-foreground">
+          <Loader2 className="size-4 animate-spin" /> {t("Loading marketplace...")}
+        </div>
+      ) : list.length === 0 ? (
         <div className="mt-4">
           <EmptyState
             icon={ShoppingBag}
             title={t("No produce found.")}
-            desc={t("Try another crop name, category or market.")}
+            desc={t("Try another crop name, category or location.")}
             action={<Button onClick={clear}>{t("Clear filters")}</Button>}
           />
         </div>
       ) : (
         <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {list.map((p) => (
-            <ProduceCard
+            <MarketplaceCard
               key={p.id}
               product={p}
-              onBuy={() => setBuy(p)}
+              onBuy={() => setBuyId(p.id)}
               onContact={() => setContact(p)}
             />
           ))}
         </div>
       )}
 
-      <BuyNowDialog product={buy} onClose={() => setBuy(null)} />
-      <ContactSellerDialog product={contact} onClose={() => setContact(null)} />
+      <MarketplaceBuyDialog productId={buyId} onClose={() => setBuyId(null)} />
+      <MarketplaceContactDialog product={contact} onClose={() => setContact(null)} />
     </>
   );
 }
@@ -802,19 +1039,52 @@ function Pick({
 /* ------------------------------------------------------------------ product details */
 
 export function BuyerProductDetail({ productId }: { productId: string }) {
-  const { products, savedListings, toggleSavedListing } = useStore();
-  const product = products.find((p) => p.id === productId);
-  const [buy, setBuy] = useState<Product | null>(null);
-  const [contact, setContact] = useState<Product | null>(null);
+  const id = Number(productId);
+  const [product, setProduct] = useState<BackendProduct | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+  const [showBuy, setShowBuy] = useState(false);
+  const [contact, setContact] = useState<BackendProduct | null>(null);
 
-  if (!product) {
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        setLoading(true);
+        setLoadError("");
+        if (!Number.isInteger(id) || id <= 0) throw new Error("Product not found.");
+        const data = await fetchProductById(id);
+        if (!cancelled) setProduct(data);
+      } catch (err: unknown) {
+        if (!cancelled) setLoadError(friendlyProductError(err, t("Could not load product.")));
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [id]);
+
+  if (loading) {
+    return (
+      <>
+        <PageHeader title={t("Produce Details")} breadcrumb={[t("Buyer"), t("Marketplace")]} />
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Loader2 className="size-4 animate-spin" /> {t("Loading product...")}
+        </div>
+      </>
+    );
+  }
+
+  if (!product || loadError) {
     return (
       <>
         <PageHeader title={t("Produce Details")} breadcrumb={[t("Buyer"), t("Marketplace")]} />
         <EmptyState
           icon={Package}
           title={t("No produce found.")}
-          desc={t("This listing is no longer available.")}
+          desc={loadError || t("This listing is no longer available.")}
           action={
             <Link to="/app/$" params={{ _splat: "buyer/marketplace" }}>
               <Button>{t("Back to Marketplace")}</Button>
@@ -825,17 +1095,12 @@ export function BuyerProductDetail({ productId }: { productId: string }) {
     );
   }
 
-  const gap = priceGap(product);
-  const profile = sellerOf(product.seller);
-  const saved = savedListings.includes(product.id);
-  const board = MARKET_PRICE_BOARD.find((m) => m.product === product.name);
-
   return (
     <>
       <PageHeader
         title={t("Produce Details")}
-        subtitle={`${t(product.name)} • ${t(product.variety)}`}
-        breadcrumb={[t("Buyer"), t("Marketplace"), t(product.name)]}
+        subtitle={`${product.name} • ${t(backendCategoryLabel(product.category))}`}
+        breadcrumb={[t("Buyer"), t("Marketplace"), product.name]}
         action={
           <Link to="/app/$" params={{ _splat: "buyer/marketplace" }}>
             <Button variant="outline" className="gap-2">
@@ -846,42 +1111,39 @@ export function BuyerProductDetail({ productId }: { productId: string }) {
       />
       <div className="grid gap-4 lg:grid-cols-3">
         <Card className="gap-0 overflow-hidden p-0 lg:col-span-2">
-          <img src={product.image} alt={t(product.name)} className="h-64 w-full object-cover" />
+          <img
+            src={categoryPlaceholderImage(product.name)}
+            alt={product.name}
+            className="h-64 w-full object-cover"
+          />
           <div className="p-5">
             <div className="flex flex-wrap items-center gap-2">
-              <h2 className="text-xl font-bold">{t(product.name)}</h2>
-              <Badge>{t(product.category)}</Badge>
+              <h2 className="text-xl font-bold">{product.name}</h2>
+              <Badge>{t(backendCategoryLabel(product.category))}</Badge>
               <Badge variant="secondary">
-                {t("Grade")} {product.grade}
+                {t("Grade")} {product.grade?.trim() ? product.grade : "—"}
               </Badge>
-              {product.organic && <Badge variant="outline">{t("Organic")}</Badge>}
-              <StatusBadge status={product.stock > 0 ? "Available" : "Sold Out"} />
+              <StatusBadge status={backendStatusLabel(product.status)} />
             </div>
             <dl className="mt-4 grid grid-cols-2 gap-3 text-sm sm:grid-cols-3">
-              <Row label={t("Variety")} value={t(product.variety)} />
-              <Row label={t("Seller")} value={product.seller} />
-              <Row label={t("Seller Location")} value={t(product.location)} />
-              <Row label={t("Seller Rating")} value={`★ ${profile?.rating ?? product.rating}`} />
-              <Row label={t("Available Quantity")} value={`${product.stock} ${t(product.unit)}`} />
+              <Row label={t("Seller")} value={sellerDisplayName(product.seller)} />
+              <Row label={t("Seller Location")} value={product.location} />
+              <Row
+                label={t("Available Quantity")}
+                value={`${product.quantity} ${t(product.unit)}`}
+              />
               <Row label={t("Unit")} value={t(product.unit)} />
-              <Row
-                label={t("Minimum Order Quantity")}
-                value={`${product.minOrder} ${t(product.unit)}`}
-              />
-              <Row label={t("Harvest Date")} value={t(product.harvestDate)} />
-              <Row label={t("Available Until")} value={t(product.availableUntil)} />
-              <Row label={t("Market / Mandi")} value={t(product.market)} />
-              <Row
-                label={t("Quality")}
-                value={product.organic ? t("Organic") : t("Conventional")}
-              />
+              <Row label={t("Location")} value={product.location} />
+              <Row label={t("Status")} value={t(backendStatusLabel(product.status))} />
             </dl>
-            <p className="mt-4 text-sm text-muted-foreground">{t(product.description)}</p>
+            {product.description && (
+              <p className="mt-4 text-sm text-muted-foreground">{product.description}</p>
+            )}
           </div>
         </Card>
 
         <div className="space-y-4">
-          <SectionCard title={t("Price Comparison")}>
+          <SectionCard title={t("Price")}>
             <div className="space-y-2 text-sm">
               <div className="flex justify-between">
                 <span className="text-muted-foreground">{t("Seller Price")}</span>
@@ -890,65 +1152,48 @@ export function BuyerProductDetail({ productId }: { productId: string }) {
                 </span>
               </div>
               <div className="flex justify-between">
-                <span className="text-muted-foreground">{t("Current Market Price")}</span>
-                <span>{unitPrice(product.marketPrice, product.unit)}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">{t("Difference")}</span>
-                <span>{gap.label}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">{t("Market")}</span>
-                <span>{t(product.market)}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">{t("Trend")}</span>
-                <TrendBadge trend={product.trend} {...(board ? { change: board.change } : {})} />
+                <span className="text-muted-foreground">{t("Seller")}</span>
+                <span>{sellerDisplayName(product.seller)}</span>
               </div>
             </div>
-            <Badge
-              className="mt-3 w-fit rounded-full"
-              variant={gap.diff > 0 ? "outline" : "default"}
-            >
-              {gap.diff === 0
-                ? t("At Market")
-                : gap.diff > 0
-                  ? t("Above Market")
-                  : t("Below Market")}
-            </Badge>
+          </SectionCard>
+
+          <SectionCard title={t("Seller Information")}>
+            <dl className="grid gap-3 text-sm">
+              <Row label={t("Seller")} value={sellerDisplayName(product.seller)} />
+              <Row label={t("Location")} value={product.location} />
+              {product.seller?.sellerProfile?.district && (
+                <Row
+                  label={t("District")}
+                  value={product.seller.sellerProfile.district}
+                />
+              )}
+              {product.seller?.sellerProfile?.state && (
+                <Row label={t("State")} value={product.seller.sellerProfile.state} />
+              )}
+            </dl>
           </SectionCard>
 
           <SectionCard title={t("Actions")}>
             <div className="grid gap-2">
-              <Button disabled={product.stock <= 0} onClick={() => setBuy(product)}>
-                {product.stock <= 0 ? t("Sold Out") : t("Buy Now")}
-              </Button>
-              <Button variant="outline" className="gap-2" onClick={() => setContact(product)}>
+              <Button onClick={() => setShowBuy(true)}>{t("Buy Now")}</Button>
+              <p className="text-xs text-muted-foreground">
+                {t("Ordering is coming soon — checkout, cart and payments are a future module.")}
+              </p>
+              <Button
+                variant="outline"
+                className="gap-2"
+                onClick={() => setContact(product)}
+              >
                 <MessageSquare className="size-4" /> {t("Contact Seller")}
               </Button>
-              <Button
-                variant="ghost"
-                className="gap-2"
-                onClick={() => {
-                  toggleSavedListing(product.id);
-                  toast.success(saved ? t("Removed from saved") : t("Saved for later"));
-                }}
-              >
-                <Heart className={`size-4 ${saved ? "fill-destructive text-destructive" : ""}`} />{" "}
-                {saved ? t("Saved") : t("Save Product")}
-              </Button>
-              <Link to="/app/$" params={{ _splat: `buyer/sellers/${profile?.id ?? ""}` }}>
-                <Button variant="ghost" className="w-full gap-2">
-                  <Sprout className="size-4" /> {t("View Seller")}
-                </Button>
-              </Link>
             </div>
           </SectionCard>
         </div>
       </div>
 
-      <BuyNowDialog product={buy} onClose={() => setBuy(null)} />
-      <ContactSellerDialog product={contact} onClose={() => setContact(null)} />
+      <MarketplaceBuyDialog productId={showBuy ? product.id : null} onClose={() => setShowBuy(false)} />
+      <MarketplaceContactDialog product={contact} onClose={() => setContact(null)} />
     </>
   );
 }
