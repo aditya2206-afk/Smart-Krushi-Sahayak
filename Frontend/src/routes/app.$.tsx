@@ -16,10 +16,10 @@ import {
   LibraryPage,
   NotificationsPage,
   PesticidesPage,
-  ProfilePage,
   SettingsPage,
   WeatherPage,
 } from "@/pages/shared";
+import { ProfilePage } from "@/pages/ProfilePage";
 import {
   DiseasesPage,
   OfficerCropsPage,
