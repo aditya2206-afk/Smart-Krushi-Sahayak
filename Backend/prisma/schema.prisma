@@ -29,6 +29,28 @@ enum QueryPriority {
   HIGH
 }
 
+enum ProductCategory {
+  VEGETABLE
+  FRUIT
+  GRAIN
+  PULSE
+  COMMERCIAL_CROP
+  OTHER
+}
+
+enum ProductUnit {
+  KG
+  QUINTAL
+  TON
+  PIECE
+}
+
+enum ListingStatus {
+  ACTIVE
+  OUT_OF_STOCK
+  INACTIVE
+}
+
 model User {
   id        Int      @id @default(autoincrement())
   name      String
@@ -47,6 +69,7 @@ model User {
 
   farmerQueries   FarmerQuery[]    @relation("FarmerQueries")
   recommendations Recommendation[] @relation("OfficerRecommendations")
+  produceListings ProduceListing[] @relation("SellerListings")
 }
 
 model FarmerProfile {
@@ -144,5 +167,29 @@ model Recommendation {
   updatedAt        DateTime    @updatedAt
 
   @@index([officerId])
+}
+
+model ProduceListing {
+  id          Int            @id @default(autoincrement())
+  sellerId    Int
+  seller      User           @relation("SellerListings", fields: [sellerId], references: [id], onDelete: Cascade)
+  name        String
+  category    ProductCategory
+  grade       String?
+  description String?        @db.Text
+  quantity    Decimal        @db.Decimal(12, 2)
+  unit        ProductUnit
+  price       Decimal        @db.Decimal(12, 2)
+  location    String
+  imageUrl    String?
+  status      ListingStatus  @default(ACTIVE)
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  @@index([sellerId])
+  @@index([status])
+  @@index([category])
+  @@index([createdAt])
+  @@index([name])
 }
 

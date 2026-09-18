@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import {
   Bar,
@@ -22,6 +22,7 @@ import {
   Download,
   IndianRupee,
   Leaf,
+  Loader2,
   MessageSquare,
   Package,
   Phone,
@@ -73,6 +74,21 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import {
+  backendCategoryLabel,
+  backendStatusLabel,
+  categoryPlaceholderImage,
+  createProduct as apiCreateProduct,
+  deleteProduct as apiDeleteProduct,
+  fetchMyProducts,
+  friendlyProductError,
+  sellerDisplayName,
+  updateProduct as apiUpdateProduct,
+  type BackendListingStatus,
+  type BackendProduct,
+  type BackendProductCategory,
+  type BackendProductUnit,
+} from "@/lib/skl/products";
+import {
   EmptyState,
   PageHeader,
   SectionCard,
@@ -85,21 +101,47 @@ import { inr, useStore } from "@/lib/skl/store";
 import {
   BUYERS,
   CHART_DATA,
-  MARKETS,
   MARKET_PRICE_BOARD,
   PRICE_HISTORY,
-  PRODUCE_CATEGORIES,
-  PRODUCE_GRADES,
-  PRODUCE_UNITS,
-  cropImages,
   type Order,
   type OrderStatus,
   type Product,
-  type ProduceCategory,
 } from "@/lib/skl/data";
 import { t } from "@/lib/skl/i18n";
 
 const SELLER = "Shree Krushi Produce";
+const BACKEND_CATEGORY_OPTIONS: { value: BackendProductCategory; label: string }[] = [
+  { value: "VEGETABLE", label: "Vegetable" },
+  { value: "FRUIT", label: "Fruit" },
+  { value: "GRAIN", label: "Grain" },
+  { value: "PULSE", label: "Pulse" },
+  { value: "COMMERCIAL_CROP", label: "Commercial Crop" },
+  { value: "OTHER", label: "Other" },
+];
+const BACKEND_UNIT_OPTIONS: BackendProductUnit[] = ["KG", "QUINTAL", "TON", "PIECE"];
+const BACKEND_GRADE_OPTIONS = ["A", "B", "FAQ", "Premium", "Standard"];
+
+function toBackendStatusFlag(s: BackendListingStatus): boolean {
+  return s !== "INACTIVE";
+}
+
+function backendRows(list: BackendProduct[]) {
+  return list.map((p) => ({
+    id: String(p.id),
+    name: p.name,
+    category: backendCategoryLabel(p.category),
+    grade: p.grade?.trim() ? p.grade : "—",
+    quantity: p.quantity,
+    unit: p.unit.toLowerCase(),
+    price: p.price,
+    location: p.location,
+    status: p.status,
+    statusLabel: backendStatusLabel(p.status),
+    image: categoryPlaceholderImage(p.name),
+    description: p.description ?? "",
+    raw: p,
+  }));
+}
 const COLORS = ["#2E7D32", "#66BB6A", "#F9A825", "#26A69A", "#8D6E63"];
 const ORDER_STATUSES: OrderStatus[] = [
   "New",
@@ -135,15 +177,37 @@ function bySeller<T extends { seller: string }>(items: T[]) {
 /* ------------------------------------------------------------------ dashboard */
 
 export function ProduceDashboard() {
-  const { products, orders } = useStore();
-  const mine = bySeller(products);
+  const { orders } = useStore();
+  const [listings, setListings] = useState<BackendProduct[]>([]);
+  const [loadingListings, setLoadingListings] = useState(true);
+  const [listingsError, setListingsError] = useState("");
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        setLoadingListings(true);
+        setListingsError("");
+        const data = await fetchMyProducts();
+        if (!cancelled) setListings(data);
+      } catch (err: unknown) {
+        if (!cancelled) setListingsError(friendlyProductError(err, "Could not load listings."));
+      } finally {
+        if (!cancelled) setLoadingListings(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  const mine = useMemo(() => backendRows(listings), [listings]);
   const sellerOrders = bySeller(orders);
   const todayOrders = sellerOrders.filter(
     (o) => o.date === "21 Aug 2026" || o.status === "New" || o.status === "Confirmed",
   );
   const revenue = todayOrders.reduce((a, o) => a + o.total, 0);
-  const totalStock = mine.filter((p) => p.unit === "kg").reduce((a, p) => a + p.stock, 0);
-  const lowStock = mine.filter((p) => listingStatus(p) === "Low Stock").length;
+  const totalStock = listings.reduce((a, p) => a + (Number.isFinite(p.quantity) ? p.quantity : 0), 0);
+  const activeCount = listings.filter((p) => p.status === "ACTIVE").length;
+  const lowStock = listings.filter((p) => p.quantity > 0 && p.quantity <= 200).length;
   const avgMarket = Math.round(
     MARKET_PRICE_BOARD.filter((m) => m.unit === "quintal").reduce((a, m) => a + m.avg, 0) /
       MARKET_PRICE_BOARD.filter((m) => m.unit === "quintal").length,
@@ -163,7 +227,7 @@ export function ProduceDashboard() {
           <StatCard
             icon={Package}
             label={t("Active Listings")}
-            value={mine.filter((p) => p.active).length}
+            value={loadingListings ? "…" : activeCount}
             hint={t("Open Inventory")}
           />
         </Link>
@@ -180,8 +244,8 @@ export function ProduceDashboard() {
           <StatCard
             icon={Boxes}
             label={t("Total Stock")}
-            value={`${totalStock.toLocaleString("en-IN")} ${t("kg")}`}
-            hint={t("Vegetables and fruits")}
+            value={`${totalStock.toLocaleString("en-IN")}`}
+            hint={t("Across all live listings")}
             tone="forest"
           />
         </Link>
@@ -316,71 +380,67 @@ export function ProduceDashboard() {
 /* ------------------------------------------------------------------ add listing */
 
 export function AddProductPage() {
-  const { addProduct } = useStore();
   const navigate = useNavigate();
-  const search = useAppSearch();
-  const prefill = MARKET_PRICE_BOARD.find((m) => m.product === search.use);
-  const empty = {
-    name: prefill?.product ?? "",
-    category: (prefill?.category ?? "Vegetable") as ProduceCategory,
-    variety: "",
+  const [f, setF] = useState({
+    name: "",
+    category: "VEGETABLE" as BackendProductCategory,
     grade: "A",
     stock: "",
-    unit: prefill?.unit ?? "kg",
-    price: prefill ? String(prefill.avg) : "",
-    marketPrice: prefill ? String(prefill.avg) : "",
-    market: prefill?.market ?? MARKETS[0]!,
-    location: prefill?.district ?? "Solapur",
-    harvestDate: "",
-    availableUntil: "",
+    unit: "KG" as BackendProductUnit,
+    price: "",
+    location: "",
     description: "",
-    organic: false,
-    minOrder: "",
-  };
-  const [f, setF] = useState(empty);
+  });
+  const [saving, setSaving] = useState(false);
 
-  const publish = (asDraft = false) => {
-    if (f.name.trim().length < 3) {
+  const publish = async () => {
+    if (f.name.trim().length < 1) {
       toast.error(t("Enter a produce name"));
       return;
     }
-    if (!f.price || Number(f.price) <= 0) {
-      toast.error(t("Enter a valid selling price"));
+    if (!f.category) {
+      toast.error(t("Select a category"));
       return;
     }
-    if (!f.stock || Number(f.stock) <= 0) {
+    const qty = Number(f.stock);
+    if (!f.stock || !Number.isFinite(qty) || qty <= 0) {
       toast.error(t("Enter the available quantity"));
       return;
     }
-    addProduct({
-      id: `P-${Math.floor(Math.random() * 900 + 100)}`,
-      name: f.name.trim(),
-      category: f.category,
-      variety: f.variety.trim() || f.name.trim(),
-      grade: f.grade,
-      seller: SELLER,
-      location: f.location,
-      market: f.market,
-      price: Number(f.price),
-      marketPrice: Number(f.marketPrice) || Number(f.price),
-      trend: trendOf(Number(f.price) - (Number(f.marketPrice) || Number(f.price))),
-      stock: Number(f.stock),
-      unit: f.unit,
-      minOrder: Number(f.minOrder) || 1,
-      harvestDate: f.harvestDate || "21 Aug 2026",
-      availableUntil: f.availableUntil || "30 Sep 2026",
-      organic: f.organic,
-      rating: 4.5,
-      orders: 0,
-      verified: true,
-      active: !asDraft,
-      description:
-        f.description.trim() || "Freshly harvested agricultural produce from a verified seller.",
-      image: cropImages.product,
-    });
-    toast.success(asDraft ? t("Saved as draft") : t("Produce listing published successfully."));
-    setF(empty);
-    navigate({ to: "/app/$", params: { _splat: "seller/inventory" } });
+    if (!f.unit) {
+      toast.error(t("Select a unit"));
+      return;
+    }
+    const price = Number(f.price);
+    if (!f.price || !Number.isFinite(price) || price <= 0) {
+      toast.error(t("Enter a valid selling price"));
+      return;
+    }
+    if (f.location.trim().length < 1) {
+      toast.error(t("Enter a location"));
+      return;
+    }
+    try {
+      setSaving(true);
+      const grade = f.grade.trim();
+      const description = f.description.trim();
+      await apiCreateProduct({
+        name: f.name.trim(),
+        category: f.category,
+        ...(grade ? { grade } : {}),
+        ...(description ? { description } : {}),
+        quantity: qty,
+        unit: f.unit,
+        price,
+        location: f.location.trim(),
+      });
+      toast.success(t("Product listed successfully"));
+      navigate({ to: "/app/$", params: { _splat: "seller/inventory" } });
+    } catch (err: unknown) {
+      toast.error(friendlyProductError(err, t("Could not list product")));
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -407,29 +467,19 @@ export function AddProductPage() {
               <Label>{t("Category")}</Label>
               <Select
                 value={f.category}
-                onValueChange={(v) => setF({ ...f, category: v as ProduceCategory })}
+                onValueChange={(v) => setF({ ...f, category: v as BackendProductCategory })}
               >
                 <SelectTrigger className="mt-1.5 w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {PRODUCE_CATEGORIES.map((c) => (
-                    <SelectItem key={c} value={c}>
-                      {t(c)}
+                  {BACKEND_CATEGORY_OPTIONS.map((c) => (
+                    <SelectItem key={c.value} value={c.value}>
+                      {t(c.label)}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
-            </div>
-            <div>
-              <Label>{t("Variety")}</Label>
-              <Input
-                className="mt-1.5"
-                maxLength={50}
-                value={f.variety}
-                onChange={(e) => setF({ ...f, variety: e.target.value })}
-                placeholder={t("Hybrid Tomato")}
-              />
             </div>
             <div>
               <Label>{t("Grade / Quality")}</Label>
@@ -438,7 +488,7 @@ export function AddProductPage() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {PRODUCE_GRADES.map((g) => (
+                  {BACKEND_GRADE_OPTIONS.map((g) => (
                     <SelectItem key={g} value={g}>
                       {g}
                     </SelectItem>
@@ -458,12 +508,15 @@ export function AddProductPage() {
             </div>
             <div>
               <Label>{t("Unit")}</Label>
-              <Select value={f.unit} onValueChange={(v) => setF({ ...f, unit: v })}>
+              <Select
+                value={f.unit}
+                onValueChange={(v) => setF({ ...f, unit: v as BackendProductUnit })}
+              >
                 <SelectTrigger className="mt-1.5 w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {PRODUCE_UNITS.map((u) => (
+                  {BACKEND_UNIT_OPTIONS.map((u) => (
                     <SelectItem key={u} value={u}>
                       {t(u)}
                     </SelectItem>
@@ -482,122 +535,35 @@ export function AddProductPage() {
               />
             </div>
             <div>
-              <Label>{t("Current Market Price")} (₹)</Label>
-              <div className="mt-1.5 flex gap-2">
-                <Input
-                  type="number"
-                  value={f.marketPrice}
-                  onChange={(e) => setF({ ...f, marketPrice: e.target.value })}
-                  placeholder="28"
-                />
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    const row = MARKET_PRICE_BOARD.find(
-                      (m) => m.product.toLowerCase() === f.name.trim().toLowerCase(),
-                    );
-                    if (!row) {
-                      toast.error(t("No market price found for this produce"));
-                      return;
-                    }
-                    setF({
-                      ...f,
-                      marketPrice: String(row.avg),
-                      market: row.market,
-                      unit: row.unit,
-                    });
-                    toast.success(t("Market price applied"));
-                  }}
-                >
-                  {t("Use Market Price")}
-                </Button>
-              </div>
-            </div>
-            <div>
-              <Label>{t("Market / Mandi")}</Label>
-              <Select value={f.market} onValueChange={(v) => setF({ ...f, market: v })}>
-                <SelectTrigger className="mt-1.5 w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {MARKETS.map((m) => (
-                    <SelectItem key={m} value={m}>
-                      {t(m)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
               <Label>{t("Location")}</Label>
               <Input
                 className="mt-1.5"
-                maxLength={40}
+                maxLength={200}
                 value={f.location}
                 onChange={(e) => setF({ ...f, location: e.target.value })}
+                placeholder={t("Solapur, Maharashtra")}
               />
-            </div>
-            <div>
-              <Label>{t("Harvest Date")}</Label>
-              <Input
-                className="mt-1.5"
-                type="date"
-                value={f.harvestDate}
-                onChange={(e) => setF({ ...f, harvestDate: e.target.value })}
-              />
-            </div>
-            <div>
-              <Label>{t("Available Until")}</Label>
-              <Input
-                className="mt-1.5"
-                type="date"
-                value={f.availableUntil}
-                onChange={(e) => setF({ ...f, availableUntil: e.target.value })}
-              />
-            </div>
-            <div>
-              <Label>{t("Minimum Order Quantity")}</Label>
-              <Input
-                className="mt-1.5"
-                type="number"
-                value={f.minOrder}
-                onChange={(e) => setF({ ...f, minOrder: e.target.value })}
-                placeholder="20"
-              />
-            </div>
-            <div className="flex items-end gap-3">
-              <div className="flex items-center gap-2 rounded-xl border px-3 py-2">
-                <Switch
-                  checked={f.organic}
-                  onCheckedChange={(v) => setF({ ...f, organic: v })}
-                  id="organic"
-                />
-                <Label htmlFor="organic">{f.organic ? t("Organic") : t("Conventional")}</Label>
-              </div>
             </div>
             <div className="sm:col-span-2">
               <Label>{t("Description")}</Label>
               <Textarea
                 className="mt-1.5"
                 rows={4}
-                maxLength={500}
+                maxLength={5000}
                 value={f.description}
                 onChange={(e) => setF({ ...f, description: e.target.value })}
-                placeholder={t("Quality, packing and delivery details")}
+                placeholder={t("Fresh red tomatoes harvested this week")}
               />
             </div>
           </div>
           <div className="mt-4 flex flex-wrap gap-2">
-            <Button className="gap-2" onClick={() => publish(false)}>
+            <Button className="gap-2" onClick={() => publish()} disabled={saving}>
+              {saving && <Loader2 className="size-4 animate-spin" />}
               <Plus className="size-4" /> {t("Publish Listing")}
             </Button>
-            <Button variant="outline" onClick={() => publish(true)}>
-              {t("Save Draft")}
-            </Button>
             <Button
-              variant="ghost"
+              variant="outline"
               onClick={() => {
-                setF(empty);
                 navigate({ to: "/app/$", params: { _splat: "seller/inventory" } });
               }}
             >
@@ -605,20 +571,13 @@ export function AddProductPage() {
             </Button>
           </div>
         </SectionCard>
-        <SectionCard title={t("Product Image")}>
+        <SectionCard title={t("Listing Photo")}>
           <div className="grid h-40 place-items-center rounded-xl border border-dashed bg-pale/40 text-sm text-muted-foreground">
-            {t("Drag & drop image here")}
+            {t("Image upload arrives in a later module")}
           </div>
-          <Button
-            variant="outline"
-            className="mt-3 w-full"
-            onClick={() => toast.success(t("Demo image attached"))}
-          >
-            {t("Upload Image")}
-          </Button>
           <p className="mt-3 text-xs text-muted-foreground">
             {t(
-              "Listings from verified sellers show a trust badge in the produce marketplace along with the current mandi price.",
+              "Marketplace cards keep using local category placeholder images for display only.",
             )}
           </p>
         </SectionCard>
@@ -632,37 +591,169 @@ export function AddProductPage() {
 const PAGE_SIZE = 10;
 
 export function InventoryPage() {
-  const { products, updateProduct, deleteProduct } = useStore();
   const search = useAppSearch();
   const [q, setQ] = useState("");
   const [cat, setCat] = useState("All");
-  const [status, setStatus] = useState(search.filter === "low" ? "Low Stock" : "All");
-  const [market, setMarket] = useState("All");
-  const [trend, setTrend] = useState("All");
+  const [status, setStatus] = useState(search.filter === "low" ? "OUT_OF_STOCK" : "All");
+  const [showInactive, setShowInactive] = useState(true);
   const [page, setPage] = useState(1);
-  const [stockEdit, setStockEdit] = useState<Product | null>(null);
-  const [priceEdit, setPriceEdit] = useState<Product | null>(null);
-  const [confirmDelete, setConfirmDelete] = useState<Product | null>(null);
-  const [detail, setDetail] = useState<Product | null>(null);
+  const [listings, setListings] = useState<BackendProduct[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+  const [stockEdit, setStockEdit] = useState<BackendProduct | null>(null);
+  const [stockValue, setStockValue] = useState("");
+  const [editRow, setEditRow] = useState<BackendProduct | null>(null);
+  const [editForm, setEditForm] = useState({
+    name: "",
+    category: "VEGETABLE" as BackendProductCategory,
+    grade: "",
+    quantity: "",
+    unit: "KG" as BackendProductUnit,
+    price: "",
+    location: "",
+    status: "ACTIVE" as BackendListingStatus,
+    description: "",
+  });
+  const [saving, setSaving] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState<BackendProduct | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [togglingId, setTogglingId] = useState<number | null>(null);
+  const [detail, setDetail] = useState<BackendProduct | null>(null);
 
-  const mine = bySeller(products);
-  const filtered = mine.filter(
-    (p) =>
-      `${p.name} ${p.variety} ${p.category} ${p.market} ${p.location} ${p.grade}`
-        .toLowerCase()
-        .includes(q.toLowerCase()) &&
-      (cat === "All" || p.category === cat) &&
-      (status === "All" || listingStatus(p) === status) &&
-      (market === "All" || p.market === market) &&
-      (trend === "All" || p.trend === trend) &&
-      (search.filter !== "active" || p.active),
-  );
-  const pages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const rows = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const load = async () => {
+    try {
+      setLoading(true);
+      setLoadError("");
+      const data = await fetchMyProducts({
+        search: q.trim() || undefined,
+        category: cat === "All" ? "" : (cat as BackendProductCategory),
+        status: status === "All" ? "" : (status as BackendListingStatus),
+      });
+      setListings(data);
+    } catch (err: unknown) {
+      setLoadError(friendlyProductError(err, t("Could not load inventory.")));
+    } finally {
+      setLoading(false);
+    }
+  };
 
-  const avgMarket = Math.round(
-    mine.reduce((a, p) => a + p.marketPrice, 0) / Math.max(1, mine.length),
-  );
+  useEffect(() => {
+    void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setPage(1);
+      void load();
+    }, 400);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [q, cat, status]);
+
+  const visible = showInactive ? listings : listings.filter((p) => p.status !== "INACTIVE");
+  const pages = Math.max(1, Math.ceil(visible.length / PAGE_SIZE));
+  const safePage = Math.min(page, pages);
+  const rows = visible.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+
+  const saveStock = async () => {
+    if (!stockEdit) return;
+    const qty = Number(stockValue);
+    if (!Number.isFinite(qty) || qty < 0) {
+      toast.error(t("Enter a valid quantity"));
+      return;
+    }
+    try {
+      setSaving(true);
+      const updated = await apiUpdateProduct(stockEdit.id, { quantity: qty });
+      setListings((prev) => prev.map((x) => (x.id === stockEdit.id ? updated : x)));
+      setStockEdit(null);
+      toast.success(t("Listing updated successfully."));
+    } catch (err: unknown) {
+      toast.error(friendlyProductError(err, t("Could not update stock")));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const saveEdit = async () => {
+    if (!editRow) return;
+    const qty = Number(editForm.quantity);
+    const price = Number(editForm.price);
+    if (editForm.name.trim().length < 1) {
+      toast.error(t("Enter a produce name"));
+      return;
+    }
+    if (!Number.isFinite(qty) || qty < 0) {
+      toast.error(t("Enter a valid quantity"));
+      return;
+    }
+    if (!Number.isFinite(price) || price <= 0) {
+      toast.error(t("Enter a valid selling price"));
+      return;
+    }
+    if (editForm.location.trim().length < 1) {
+      toast.error(t("Enter a location"));
+      return;
+    }
+    try {
+      setSaving(true);
+      const grade = editForm.grade.trim();
+      const description = editForm.description.trim();
+      const updated = await apiUpdateProduct(editRow.id, {
+        name: editForm.name.trim(),
+        category: editForm.category,
+        ...(grade ? { grade } : { grade: "" }),
+        quantity: qty,
+        unit: editForm.unit,
+        price,
+        location: editForm.location.trim(),
+        status: editForm.status,
+        ...(description ? { description } : { description: "" }),
+      });
+      setListings((prev) => prev.map((x) => (x.id === editRow.id ? updated : x)));
+      setEditRow(null);
+      toast.success(t("Listing updated successfully."));
+    } catch (err: unknown) {
+      toast.error(friendlyProductError(err, t("Could not update listing")));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const toggleAvailable = async (p: BackendProduct) => {
+    try {
+      setTogglingId(p.id);
+      const next: BackendListingStatus = p.status === "INACTIVE" ? "ACTIVE" : "INACTIVE";
+      const updated = await apiUpdateProduct(p.id, { status: next });
+      setListings((prev) => prev.map((x) => (x.id === p.id ? updated : x)));
+      toast.success(
+        next === "INACTIVE" ? t("Listing marked unavailable") : t("Listing is available again"),
+      );
+    } catch (err: unknown) {
+      toast.error(friendlyProductError(err, t("Could not update listing")));
+    } finally {
+      setTogglingId(null);
+    }
+  };
+
+  const removeListing = async () => {
+    if (!confirmDelete) return;
+    try {
+      setDeleting(true);
+      await apiDeleteProduct(confirmDelete.id);
+      const removedId = confirmDelete.id;
+      setListings((prev) =>
+        prev.map((x) => (x.id === removedId ? { ...x, status: "INACTIVE" } : x)),
+      );
+      setConfirmDelete(null);
+      toast.success(t("Product removed successfully"));
+    } catch (err: unknown) {
+      toast.error(friendlyProductError(err, t("Could not remove listing")));
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   return (
     <>
@@ -688,111 +779,68 @@ export function InventoryPage() {
         }
       />
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
-        <StatCard icon={Package} label={t("Total Listings")} value={mine.length} />
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <StatCard icon={Package} label={t("Total Listings")} value={listings.length} />
         <StatCard
           icon={Carrot}
-          label={t("Vegetables")}
-          value={mine.filter((p) => p.category === "Vegetable").length}
+          label={t("Active")}
+          value={listings.filter((p) => p.status === "ACTIVE").length}
           tone="harvest"
         />
         <StatCard
           icon={Wheat}
-          label={t("Crops")}
-          value={
-            mine.filter((p) => p.category === "Grain" || p.category === "Commercial Crop").length
-          }
+          label={t("Sold Out")}
+          value={listings.filter((p) => p.status === "OUT_OF_STOCK").length}
           tone="forest"
         />
         <StatCard
           icon={AlertTriangle}
-          label={t("Low Stock")}
-          value={mine.filter((p) => listingStatus(p) === "Low Stock").length}
+          label={t("Inactive")}
+          value={listings.filter((p) => p.status === "INACTIVE").length}
           tone="warning"
-        />
-        <StatCard
-          icon={TrendingUp}
-          label={t("Average Market Price")}
-          value={inr(avgMarket)}
-          tone="forest"
         />
       </div>
 
       <Card className="mt-4 gap-0 p-4">
-        <div className="grid gap-3 lg:grid-cols-[1fr_auto_auto_auto_auto]">
+        <div className="grid gap-3 lg:grid-cols-[1fr_auto_auto_auto]">
           <div className="relative">
             <Search className="absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               value={q}
-              onChange={(e) => {
-                setQ(e.target.value);
-                setPage(1);
-              }}
-              placeholder={t("Search vegetables, crops, fruits...")}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder={t("Search your listings...")}
               className="pl-9"
             />
           </div>
           <Filter
             label={t("Category")}
             value={cat}
-            onChange={(v) => {
-              setCat(v);
-              setPage(1);
-            }}
-            options={["All", ...PRODUCE_CATEGORIES]}
+            onChange={setCat}
+            options={["All", ...BACKEND_CATEGORY_OPTIONS.map((c) => c.value)]}
           />
           <Filter
             label={t("Status")}
             value={status}
-            onChange={(v) => {
-              setStatus(v);
-              setPage(1);
-            }}
-            options={["All", "Available", "Low Stock", "Fast Moving", "Unavailable", "Sold Out"]}
+            onChange={setStatus}
+            options={["All", "ACTIVE", "OUT_OF_STOCK", "INACTIVE"]}
           />
-          <Filter
-            label={t("Market")}
-            value={market}
-            onChange={(v) => {
-              setMarket(v);
-              setPage(1);
-            }}
-            options={["All", ...MARKETS]}
-          />
-          <Filter
-            label={t("Price Trend")}
-            value={trend}
-            onChange={(v) => {
-              setTrend(v);
-              setPage(1);
-            }}
-            options={["All", "Up", "Down", "Stable"]}
-          />
-        </div>
-        {(q || cat !== "All" || status !== "All" || market !== "All" || trend !== "All") && (
-          <div className="mt-3 flex items-center gap-3 text-xs text-muted-foreground">
-            <span>
-              {filtered.length} {t("listings match your filters")}
-            </span>
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => {
-                setQ("");
-                setCat("All");
-                setStatus("All");
-                setMarket("All");
-                setTrend("All");
-                setPage(1);
-              }}
-            >
-              {t("Clear filters")}
-            </Button>
+          <div className="flex items-center gap-2 rounded-xl border px-3 py-2">
+            <Switch
+              checked={showInactive}
+              onCheckedChange={setShowInactive}
+              id="show-inactive"
+            />
+            <Label htmlFor="show-inactive">{t("Show inactive")}</Label>
           </div>
-        )}
+        </div>
+        {loadError && <p className="mt-3 text-sm text-destructive">{loadError}</p>}
       </Card>
 
-      {filtered.length === 0 ? (
+      {loading ? (
+        <div className="mt-4 flex items-center gap-2 text-sm text-muted-foreground">
+          <Loader2 className="size-4 animate-spin" /> {t("Loading inventory...")}
+        </div>
+      ) : rows.length === 0 ? (
         <div className="mt-4">
           <EmptyState
             icon={Package}
@@ -816,9 +864,7 @@ export function InventoryPage() {
                   <TableHead>{t("Grade")}</TableHead>
                   <TableHead>{t("Available Qty")}</TableHead>
                   <TableHead>{t("Selling Price")}</TableHead>
-                  <TableHead>{t("Market Price")}</TableHead>
-                  <TableHead>{t("Trend")}</TableHead>
-                  <TableHead>{t("Market")}</TableHead>
+                  <TableHead>{t("Location")}</TableHead>
                   <TableHead>{t("Status")}</TableHead>
                   <TableHead className="text-right">{t("Action")}</TableHead>
                 </TableRow>
@@ -829,7 +875,7 @@ export function InventoryPage() {
                     <TableCell>
                       <div className="flex items-center gap-2">
                         <img
-                          src={p.image}
+                          src={categoryPlaceholderImage(p.name)}
                           alt={p.name}
                           loading="lazy"
                           width={80}
@@ -837,28 +883,26 @@ export function InventoryPage() {
                           className="size-9 rounded-lg object-cover"
                         />
                         <div>
-                          <p className="font-medium">{t(p.name)}</p>
-                          <p className="text-xs text-muted-foreground">{t(p.variety)}</p>
+                          <p className="font-medium">{p.name}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {sellerDisplayName(p.seller)}
+                          </p>
                         </div>
                       </div>
                     </TableCell>
-                    <TableCell className="text-muted-foreground">{t(p.category)}</TableCell>
-                    <TableCell>{p.grade}</TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {t(backendCategoryLabel(p.category))}
+                    </TableCell>
+                    <TableCell>{p.grade?.trim() ? p.grade : "—"}</TableCell>
                     <TableCell>
-                      {p.stock.toLocaleString("en-IN")} {t(p.unit)}
+                      {p.quantity.toLocaleString("en-IN")} {t(p.unit)}
                     </TableCell>
                     <TableCell className="font-semibold text-forest">
                       {unitPrice(p.price, p.unit)}
                     </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {unitPrice(p.marketPrice, p.unit)}
-                    </TableCell>
+                    <TableCell className="text-muted-foreground">{p.location}</TableCell>
                     <TableCell>
-                      <TrendBadge trend={p.trend} />
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">{t(p.market)}</TableCell>
-                    <TableCell>
-                      <StatusBadge status={listingStatus(p)} />
+                      <StatusBadge status={backendStatusLabel(p.status)} />
                     </TableCell>
                     <TableCell className="text-right">
                       <DropdownMenu>
@@ -871,26 +915,37 @@ export function InventoryPage() {
                           <DropdownMenuItem onClick={() => setDetail(p)}>
                             {t("View")}
                           </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => setPriceEdit(p)}>
+                          <DropdownMenuItem
+                            onClick={() => {
+                              setEditRow(p);
+                              setEditForm({
+                                name: p.name,
+                                category: p.category,
+                                grade: p.grade ?? "",
+                                quantity: String(p.quantity),
+                                unit: p.unit,
+                                price: String(p.price),
+                                location: p.location,
+                                status: p.status,
+                                description: p.description ?? "",
+                              });
+                            }}
+                          >
                             {t("Edit")}
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => setStockEdit(p)}>
-                            {t("Update Stock")}
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => setPriceEdit(p)}>
-                            {t("Update Price")}
                           </DropdownMenuItem>
                           <DropdownMenuItem
                             onClick={() => {
-                              updateProduct(p.id, { active: !p.active });
-                              toast.success(
-                                p.active
-                                  ? t("Listing marked unavailable")
-                                  : t("Listing is available again"),
-                              );
+                              setStockEdit(p);
+                              setStockValue(String(p.quantity));
                             }}
                           >
-                            {p.active ? t("Mark Unavailable") : t("Mark Available")}
+                            {t("Update Stock")}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            disabled={togglingId === p.id}
+                            onClick={() => void toggleAvailable(p)}
+                          >
+                            {p.status === "INACTIVE" ? t("Mark Available") : t("Mark Unavailable")}
                           </DropdownMenuItem>
                           <DropdownMenuItem
                             className="text-destructive"
@@ -908,22 +963,22 @@ export function InventoryPage() {
           </div>
           <div className="mt-4 flex items-center justify-between text-sm text-muted-foreground">
             <span>
-              {t("Page")} {page} / {pages}
+              {t("Page")} {safePage} / {pages}
             </span>
             <div className="flex gap-2">
               <Button
                 size="sm"
                 variant="outline"
-                disabled={page === 1}
-                onClick={() => setPage(page - 1)}
+                disabled={safePage === 1}
+                onClick={() => setPage(safePage - 1)}
               >
                 {t("Previous")}
               </Button>
               <Button
                 size="sm"
                 variant="outline"
-                disabled={page >= pages}
-                onClick={() => setPage(page + 1)}
+                disabled={safePage >= pages}
+                onClick={() => setPage(safePage + 1)}
               >
                 {t("Next")}
               </Button>
@@ -937,27 +992,21 @@ export function InventoryPage() {
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
             <DialogTitle>
-              {t("Update Stock")} — {stockEdit && t(stockEdit.name)}
+              {t("Update Stock")} — {stockEdit && stockEdit.name}
             </DialogTitle>
+            <DialogDescription>
+              {t("Setting quantity to 0 marks the listing as Sold Out.")}
+            </DialogDescription>
           </DialogHeader>
           {stockEdit && (
             <>
               <Label>
                 {t("Available Quantity")} ({t(stockEdit.unit)})
               </Label>
-              <Input
-                type="number"
-                value={stockEdit.stock}
-                onChange={(e) => setStockEdit({ ...stockEdit, stock: Number(e.target.value) })}
-              />
+              <Input type="number" value={stockValue} onChange={(e) => setStockValue(e.target.value)} />
               <DialogFooter>
-                <Button
-                  onClick={() => {
-                    updateProduct(stockEdit.id, { stock: stockEdit.stock });
-                    setStockEdit(null);
-                    toast.success(t("Listing updated successfully."));
-                  }}
-                >
+                <Button disabled={saving} onClick={() => void saveStock()}>
+                  {saving && <Loader2 className="size-4 animate-spin" />}
                   {t("Save Changes")}
                 </Button>
               </DialogFooter>
@@ -966,38 +1015,50 @@ export function InventoryPage() {
         </DialogContent>
       </Dialog>
 
-      {/* edit price */}
-      <Dialog open={!!priceEdit} onOpenChange={() => setPriceEdit(null)}>
-        <DialogContent className="sm:max-w-md">
+      {/* edit listing */}
+      <Dialog open={!!editRow} onOpenChange={() => setEditRow(null)}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-md">
           <DialogHeader>
             <DialogTitle>
-              {t("Edit Listing")} — {priceEdit && t(priceEdit.name)}
+              {t("Edit Listing")} — {editRow && editRow.name}
             </DialogTitle>
           </DialogHeader>
-          {priceEdit && (
+          {editRow && (
             <div className="grid gap-3">
               <div>
-                <Label>
-                  {t("Your Selling Price")} (₹/{t(priceEdit.unit)})
-                </Label>
+                <Label>{t("Product Name")}</Label>
                 <Input
                   className="mt-1.5"
-                  type="number"
-                  value={priceEdit.price}
-                  onChange={(e) => setPriceEdit({ ...priceEdit, price: Number(e.target.value) })}
+                  value={editForm.name}
+                  onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
                 />
               </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label>{t("Quantity")}</Label>
+                  <Input
+                    className="mt-1.5"
+                    type="number"
+                    value={editForm.quantity}
+                    onChange={(e) => setEditForm({ ...editForm, quantity: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <Label>{t("Price")} (₹)</Label>
+                  <Input
+                    className="mt-1.5"
+                    type="number"
+                    value={editForm.price}
+                    onChange={(e) => setEditForm({ ...editForm, price: e.target.value })}
+                  />
+                </div>
+              </div>
               <div>
-                <Label>
-                  {t("Current Market Price")} (₹/{t(priceEdit.unit)})
-                </Label>
+                <Label>{t("Location")}</Label>
                 <Input
                   className="mt-1.5"
-                  type="number"
-                  value={priceEdit.marketPrice}
-                  onChange={(e) =>
-                    setPriceEdit({ ...priceEdit, marketPrice: Number(e.target.value) })
-                  }
+                  value={editForm.location}
+                  onChange={(e) => setEditForm({ ...editForm, location: e.target.value })}
                 />
               </div>
               <div>
@@ -1005,24 +1066,13 @@ export function InventoryPage() {
                 <Textarea
                   className="mt-1.5"
                   rows={3}
-                  maxLength={400}
-                  value={priceEdit.description}
-                  onChange={(e) => setPriceEdit({ ...priceEdit, description: e.target.value })}
+                  value={editForm.description}
+                  onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
                 />
               </div>
               <DialogFooter>
-                <Button
-                  onClick={() => {
-                    updateProduct(priceEdit.id, {
-                      price: priceEdit.price,
-                      marketPrice: priceEdit.marketPrice,
-                      description: priceEdit.description,
-                      trend: trendOf(priceEdit.price - priceEdit.marketPrice),
-                    });
-                    setPriceEdit(null);
-                    toast.success(t("Listing updated successfully."));
-                  }}
-                >
+                <Button disabled={saving} onClick={() => void saveEdit()}>
+                  {saving && <Loader2 className="size-4 animate-spin" />}
                   {t("Save Changes")}
                 </Button>
               </DialogFooter>
@@ -1035,29 +1085,32 @@ export function InventoryPage() {
       <Dialog open={!!detail} onOpenChange={() => setDetail(null)}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>{detail && t(detail.name)}</DialogTitle>
+            <DialogTitle>{detail && detail.name}</DialogTitle>
           </DialogHeader>
           {detail && (
             <>
               <img
-                src={detail.image}
+                src={categoryPlaceholderImage(detail.name)}
                 alt={detail.name}
                 className="h-40 w-full rounded-xl object-cover"
               />
               <dl className="grid grid-cols-2 gap-3 text-sm">
-                <Field label={t("Category")} value={t(detail.category)} />
-                <Field label={t("Variety")} value={t(detail.variety)} />
-                <Field label={t("Grade")} value={detail.grade} />
-                <Field label={t("Available Qty")} value={`${detail.stock} ${t(detail.unit)}`} />
-                <Field label={t("Selling Price")} value={unitPrice(detail.price, detail.unit)} />
+                <Field label={t("Category")} value={t(backendCategoryLabel(detail.category))} />
+                <Field label={t("Grade")} value={detail.grade?.trim() ? detail.grade : "—"} />
                 <Field
-                  label={t("Market Price")}
-                  value={unitPrice(detail.marketPrice, detail.unit)}
+                  label={t("Available Qty")}
+                  value={`${detail.quantity} ${t(detail.unit)}`}
                 />
-                <Field label={t("Market")} value={t(detail.market)} />
-                <Field label={t("Harvest Date")} value={detail.harvestDate} />
+                <Field
+                  label={t("Selling Price")}
+                  value={unitPrice(detail.price, detail.unit)}
+                />
+                <Field label={t("Location")} value={detail.location} />
+                <Field label={t("Status")} value={backendStatusLabel(detail.status)} />
               </dl>
-              <p className="text-sm text-muted-foreground">{t(detail.description)}</p>
+              {detail.description && (
+                <p className="text-sm text-muted-foreground">{detail.description}</p>
+              )}
             </>
           )}
         </DialogContent>
@@ -1076,14 +1129,8 @@ export function InventoryPage() {
             <Button variant="outline" onClick={() => setConfirmDelete(null)}>
               {t("Cancel")}
             </Button>
-            <Button
-              variant="destructive"
-              onClick={() => {
-                deleteProduct(confirmDelete!.id);
-                setConfirmDelete(null);
-                toast.success(t("Listing deleted"));
-              }}
-            >
+            <Button variant="destructive" disabled={deleting} onClick={() => void removeListing()}>
+              {deleting && <Loader2 className="size-4 animate-spin" />}
               {t("Delete")}
             </Button>
           </DialogFooter>
@@ -1196,7 +1243,7 @@ export function MarketPricesPage() {
             label={t("Category")}
             value={cat}
             onChange={setCat}
-            options={["All", ...PRODUCE_CATEGORIES]}
+            options={["All", "Vegetable", "Fruit", "Grain", "Pulse", "Commercial Crop", "Other"]}
           />
           <Filter
             label={t("District")}
@@ -1208,7 +1255,7 @@ export function MarketPricesPage() {
             label={t("Market")}
             value={market}
             onChange={setMarket}
-            options={["All", ...MARKETS]}
+            options={["All", "Solapur Mandi", "Lasalgaon Mandi", "Nashik Mandi", "Pune Mandi"]}
           />
         </div>
       </Card>
