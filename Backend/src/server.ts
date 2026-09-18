@@ -3,6 +3,7 @@ import dotenv from "dotenv";
 import express, { type Request, type Response } from "express";
 import { prisma } from "./lib/prisma.js";
 import authRoutes from "./routes/authRoutes.js";
+import profileRoutes from "./routes/profileRoutes.js";
 
 dotenv.config();
 
@@ -18,6 +19,7 @@ app.use(
 app.use(express.json());
 
 app.use("/api/auth", authRoutes);
+app.use("/api/profile", profileRoutes);
 
 app.get("/api/health", (_req: Request, res: Response) => {
   res.json({

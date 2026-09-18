@@ -26,4 +26,68 @@ model User {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  farmerProfile FarmerProfile?
+  sellerProfile SellerProfile?
+  buyerProfile  BuyerProfile?
+  officerProfile OfficerProfile?
 }
+
+model FarmerProfile {
+  id                Int      @id @default(autoincrement())
+  userId            Int      @unique
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  phone             String?
+  village           String?
+  district          String?
+  state             String?
+  preferredLanguage String?
+  farmSize          String?
+  mainCrops         String[] @default([])
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+model SellerProfile {
+  id          Int      @id @default(autoincrement())
+  userId      Int      @unique
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  businessName String?
+  phone       String?
+  address     String?
+  district    String?
+  state       String?
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model BuyerProfile {
+  id        Int      @id @default(autoincrement())
+  userId    Int      @unique
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  phone     String?
+  address   String?
+  district  String?
+  state     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model OfficerProfile {
+  id              Int      @id @default(autoincrement())
+  userId          Int      @unique
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  phone           String?
+  designation     String?
+  qualification   String?
+  specialization  String?
+  department      String?
+  experienceYears Int?
+  officerId       String?
+  district        String?
+  state           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
