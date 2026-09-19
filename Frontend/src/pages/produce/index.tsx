@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import {
   Bar,
@@ -97,6 +97,15 @@ import {
   TrendBadge,
   trendOf,
 } from "@/components/skl/common";
+import {
+  BACKEND_ORDER_STATUSES,
+  fetchSellerOrders,
+  friendlyOrderError,
+  orderStatusLabel,
+  updateSellerOrderStatus,
+  type BackendOrder,
+  type BackendOrderStatus,
+} from "@/lib/skl/orders";
 import { inr, useStore } from "@/lib/skl/store";
 import {
   BUYERS,
@@ -371,7 +380,7 @@ export function ProduceDashboard() {
           </Link>
         }
       >
-        <OrdersTable limit={4} />
+        <LiveSellerOrdersTable limit={4} />
       </SectionCard>
     </>
   );
@@ -1334,33 +1343,216 @@ export function MarketPricesPage() {
   );
 }
 
-/* ------------------------------------------------------------------ orders */
+export function LiveSellerOrdersTable({
+  limit,
+  filterStatus,
+  query = "",
+}: {
+  limit?: number;
+  filterStatus?: string;
+  query?: string;
+}) {
+  const [orders, setOrders] = useState<BackendOrder[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [detail, setDetail] = useState<BackendOrder | null>(null);
+  const [updating, setUpdating] = useState(false);
 
-function nextActions(
-  status: OrderStatus,
-  fulfilment: Order["fulfilment"],
-): { label: string; next: OrderStatus }[] {
-  switch (status) {
-    case "New":
-      return [
-        { label: "Accept Order", next: "Confirmed" },
-        { label: "Reject Order", next: "Cancelled" },
-      ];
-    case "Confirmed":
-      return [{ label: "Mark Packed", next: "Packed" }];
-    case "Packed":
-      return fulfilment === "Pickup"
-        ? [{ label: "Ready for Pickup", next: "Ready for Pickup" }]
-        : [{ label: "Out for Delivery", next: "Out for Delivery" }];
-    case "Ready for Pickup":
-    case "Out for Delivery":
-      return [{ label: "Complete Order", next: "Completed" }];
-    default:
-      return [];
+  const load = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError("");
+      const status =
+        filterStatus && filterStatus !== "All"
+          ? (filterStatus as BackendOrderStatus)
+          : undefined;
+      setOrders(
+        await fetchSellerOrders({
+          ...(status ? { status } : {}),
+          ...(query.trim() ? { search: query.trim() } : {}),
+        }),
+      );
+    } catch (err: unknown) {
+      setError(friendlyOrderError(err, t("Could not load seller orders.")));
+    } finally {
+      setLoading(false);
+    }
+  }, [filterStatus, query]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const list = limit ? orders.slice(0, limit) : orders;
+  const current = detail ? (orders.find((o) => o.id === detail.id) ?? detail) : null;
+  async function changeStatus(o: BackendOrder, next: BackendOrderStatus) {
+    try {
+      setUpdating(true);
+      await updateSellerOrderStatus(o.id, next as "CONFIRMED" | "PROCESSING" | "SHIPPED" | "DELIVERED" | "CANCELLED");
+      toast.success(`${t("Order")} #${o.id} ? ${t(orderStatusLabel(next))}`);
+      await load();
+      setDetail(null);
+    } catch (err: unknown) {
+      toast.error(friendlyOrderError(err, t("Could not update order status.")));
+    } finally {
+      setUpdating(false);
+    }
   }
+
+  if (loading) {
+    return (
+      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        <Loader2 className="size-4 animate-spin" /> {t("Loading orders...")}
+      </div>
+    );
+  }
+  if (error) {
+    return (
+      <EmptyState
+        icon={Receipt}
+        title={t("Could not load orders")}
+        desc={error}
+        action={<Button onClick={() => void load()}>{t("Retry")}</Button>}
+      />
+    );
+  }
+
+  if (list.length === 0) {
+    return (
+      <EmptyState
+        icon={Receipt}
+        title={t("No live orders yet.")}
+        desc={t("New buyer orders for your products will appear here.")}
+      />
+    );
+  }
+
+  return (
+    <>
+      <div className="mb-3">
+        <Badge variant="outline">
+          {t("Mock seller orders are hidden here; only live backend orders are shown.")}
+        </Badge>
+      </div>
+      <div className="overflow-x-auto">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>{t("Order ID")}</TableHead>
+              <TableHead>{t("Buyer")}</TableHead>
+              <TableHead>{t("Product")}</TableHead>
+              <TableHead>{t("Quantity")}</TableHead>
+              <TableHead>{t("Total")}</TableHead>
+              <TableHead>{t("Status")}</TableHead>
+              <TableHead>{t("Order Date")}</TableHead>
+              <TableHead className="text-right">{t("Action")}</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {list.map((o) => (
+              <TableRow key={o.id}>
+                <TableCell className="font-medium">#{o.id}</TableCell>
+                <TableCell>{o.buyer?.name ?? `Buyer #${o.buyerId}`}</TableCell>
+                <TableCell>{o.items.map((i) => i.productName).join(", ")}</TableCell>
+                <TableCell>{o.items.map((i) => `${i.quantity} ${t(i.unit)}`).join(", ")}</TableCell>
+                <TableCell className="font-semibold text-forest">{inr(o.totalAmount)}</TableCell>
+                <TableCell><Badge variant="outline">{t(orderStatusLabel(o.status))}</Badge></TableCell>
+                <TableCell className="whitespace-nowrap text-muted-foreground">{new Date(o.createdAt).toLocaleString()}</TableCell>
+                <TableCell className="text-right"><Button size="sm" variant="outline" onClick={() => setDetail(o)}>{t("View")}</Button></TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+      <Dialog open={!!current} onOpenChange={() => setDetail(null)}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{t("Order Details")} � #{current?.id}</DialogTitle>
+          </DialogHeader>
+          {current && (
+            <>
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant="outline">{t(orderStatusLabel(current.status))}</Badge>
+              </div>
+              <dl className="grid grid-cols-2 gap-3 text-sm">
+                <Field label={t("Buyer")} value={current.buyer?.name ?? `#${current.buyerId}`} />
+                <Field label={t("Buyer Email")} value={current.buyer?.email ?? "�"} />
+                <Field label={t("Product")} value={current.items.map((i) => i.productName).join(", ")} />
+                <Field label={t("Quantity")} value={current.items.map((i) => `${i.quantity} ${t(i.unit)}`).join(", ")} />
+                <Field label={t("Price")} value={current.items.map((i) => `${inr(i.unitPrice)}/${t(i.unit)}`).join(", ")} />
+                <Field label={t("Total")} value={inr(current.totalAmount)} />
+                <Field label={t("Order Date")} value={new Date(current.createdAt).toLocaleString()} />
+              </dl>
+              <DialogFooter className="flex-wrap gap-2">
+                {current.status === "PENDING" && (
+                  <>
+                    <Button
+                      disabled={updating}
+                      onClick={() => void changeStatus(current, "CONFIRMED")}
+                    >
+                      {t("Confirm")}
+                    </Button>
+                    <Button
+                      variant="destructive"
+                      disabled={updating}
+                      onClick={() => void changeStatus(current, "CANCELLED")}
+                    >
+                      {t("Cancel")}
+                    </Button>
+                  </>
+                )}
+                {current.status === "CONFIRMED" && (
+                  <>
+                    <Button
+                      disabled={updating}
+                      onClick={() => void changeStatus(current, "PROCESSING")}
+                    >
+                      {t("Mark Processing")}
+                    </Button>
+                    <Button
+                      variant="destructive"
+                      disabled={updating}
+                      onClick={() => void changeStatus(current, "CANCELLED")}
+                    >
+                      {t("Cancel")}
+                    </Button>
+                  </>
+                )}
+                {current.status === "PROCESSING" && (
+                  <>
+                    <Button
+                      disabled={updating}
+                      onClick={() => void changeStatus(current, "SHIPPED")}
+                    >
+                      {t("Mark Shipped")}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      disabled={updating}
+                      onClick={() => void changeStatus(current, "CANCELLED")}
+                    >
+                      {t("Cancel")}
+                    </Button>
+                  </>
+                )}
+                {current.status === "SHIPPED" && (
+                  <Button
+                    disabled={updating}
+                    onClick={() => void changeStatus(current, "DELIVERED")}
+                  >
+                    {t("Mark Delivered")}
+                  </Button>
+                )}
+              </DialogFooter>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
+    </>
+  );
 }
 
-function OrdersTable({
+function MockOrdersTable({
   limit,
   filterStatus,
   query = "",
@@ -1374,6 +1566,7 @@ function OrdersTable({
   buyerType?: string;
 }) {
   const { orders, setOrderStatus } = useStore();
+  void limit;
   const [detail, setDetail] = useState<Order | null>(null);
   const filtered = bySeller(orders).filter(
     (o) =>
@@ -1503,22 +1696,10 @@ function OrdersTable({
                 <Button
                   variant="outline"
                   className="gap-2"
-                  onClick={() => toast.info(`${t("Calling")} ${current.buyer} (demo)`)}
+                  onClick={() => toast.info(t("Buyer contact is not part of this module."))}
                 >
                   <Phone className="size-4" /> {t("Contact Buyer")}
                 </Button>
-                {nextActions(current.status, current.fulfilment).map((a) => (
-                  <Button
-                    key={a.next}
-                    variant={a.next === "Cancelled" ? "outline" : "default"}
-                    onClick={() => {
-                      setOrderStatus(current.id, a.next);
-                      toast.success(`${current.id} → ${t(a.next)}`);
-                    }}
-                  >
-                    {t(a.label)}
-                  </Button>
-                ))}
               </DialogFooter>
             </>
           )}
@@ -1529,23 +1710,9 @@ function OrdersTable({
 }
 
 export function ProduceOrdersPage() {
-  const { orders, products } = useStore();
   const search = useAppSearch();
   const [status, setStatus] = useState("All");
   const [q, setQ] = useState("");
-  const [product, setProduct] = useState("All");
-  const [buyerType, setBuyerType] = useState("All");
-  const productNames = [...new Set(products.map((p) => p.name))];
-  const sellerOrders = bySeller(orders);
-  const buyerTypes = [...new Set(sellerOrders.map((o) => o.buyerType))];
-  const counts = useMemo(
-    () =>
-      (["New", "Confirmed", "Packed", "Completed"] as OrderStatus[]).map((s) => ({
-        s,
-        n: sellerOrders.filter((o) => o.status === s).length,
-      })),
-    [sellerOrders],
-  );
   return (
     <>
       <PageHeader
@@ -1553,16 +1720,14 @@ export function ProduceOrdersPage() {
         subtitle={
           search.filter === "today"
             ? t("Produce orders received today.")
-            : t("Process produce orders from buyers and update their status.")
+            : t("Live buyer orders for your products. Confirm to move stock.")
         }
         breadcrumb={[t("Seller"), t("Orders")]}
       />
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {counts.map((c) => (
-          <button key={c.s} type="button" className="text-left" onClick={() => setStatus(c.s)}>
-            <StatCard icon={Receipt} label={`${t(c.s)} ${t("Orders")}`} value={c.n} />
-          </button>
-        ))}
+      <div className="mb-3">
+        <Badge variant="outline">
+          {t("Mock seller orders are hidden here; only live backend orders are shown.")}
+        </Badge>
       </div>
       <Card className="mt-4 gap-0 p-4">
         <div className="grid gap-3 lg:grid-cols-[1fr_auto_auto_auto]">
@@ -1579,24 +1744,12 @@ export function ProduceOrdersPage() {
             label={t("Status")}
             value={status}
             onChange={setStatus}
-            options={["All", ...ORDER_STATUSES]}
-          />
-          <Filter
-            label={t("Product")}
-            value={product}
-            onChange={setProduct}
-            options={["All", ...productNames]}
-          />
-          <Filter
-            label={t("Buyer Type")}
-            value={buyerType}
-            onChange={setBuyerType}
-            options={["All", ...buyerTypes]}
+            options={["All", ...BACKEND_ORDER_STATUSES]}
           />
         </div>
       </Card>
       <SectionCard title={t("All Orders")} className="mt-4">
-        <OrdersTable filterStatus={status} query={q} product={product} buyerType={buyerType} />
+        <LiveSellerOrdersTable filterStatus={status} query={q} />
       </SectionCard>
     </>
   );
