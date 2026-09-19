@@ -5,6 +5,8 @@ import { prisma } from "./lib/prisma.js";
 import authRoutes from "./routes/authRoutes.js";
 import profileRoutes from "./routes/profileRoutes.js";
 import productRoutes from "./routes/productRoutes.js";
+import orderRoutes from "./routes/orderRoutes.js";
+import sellerOrderRoutes from "./routes/sellerOrderRoutes.js";
 import queryRoutes from "./routes/queryRoutes.js";
 import officerQueryRoutes from "./routes/officerQueryRoutes.js";
 
@@ -24,6 +26,8 @@ app.use(express.json());
 app.use("/api/auth", authRoutes);
 app.use("/api/profile", profileRoutes);
 app.use("/api/products", productRoutes);
+app.use("/api/orders", orderRoutes);
+app.use("/api/seller/orders", sellerOrderRoutes);
 app.use("/api/queries", queryRoutes);
 app.use("/api/officer", officerQueryRoutes);
 

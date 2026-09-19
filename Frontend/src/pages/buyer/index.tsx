@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import {
   ArrowLeft,
@@ -69,6 +69,17 @@ import {
   type OrderStatus,
   type Product,
 } from "@/lib/skl/data";
+import {
+  BACKEND_ORDER_STATUSES,
+  cancelMyOrder,
+  fetchBuyerOrderById,
+  fetchMyOrders,
+  friendlyOrderError,
+  orderStatusLabel,
+  placeOrder as apiPlaceOrder,
+  type BackendOrder,
+  type BackendOrderStatus,
+} from "@/lib/skl/orders";
 import {
   backendCategoryLabel,
   backendStatusLabel,
@@ -208,10 +219,14 @@ function MarketplaceBuyDialog({
   const [product, setProduct] = useState<BackendProduct | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [qty, setQty] = useState("1");
+  const [placing, setPlacing] = useState(false);
+  const navigate = useNavigate();
   useEffect(() => {
     if (productId === null) {
       setProduct(null);
       setError("");
+      setQty("1");
       return;
     }
     let cancelled = false;
@@ -220,7 +235,10 @@ function MarketplaceBuyDialog({
         setLoading(true);
         setError("");
         const data = await fetchProductById(productId);
-        if (!cancelled) setProduct(data);
+        if (!cancelled) {
+          setProduct(data);
+          setQty("1");
+        }
       } catch (err: unknown) {
         if (!cancelled) setError(friendlyProductError(err, t("Could not load product.")));
       } finally {
@@ -231,14 +249,38 @@ function MarketplaceBuyDialog({
       cancelled = true;
     };
   }, [productId]);
+
+  const qtyNum = Number(qty);
+  const validQty =
+    product !== null && Number.isFinite(qtyNum) && qtyNum > 0 && qtyNum <= product.quantity;
+  const previewTotal =
+    product && Number.isFinite(qtyNum) && qtyNum > 0 ? product.price * qtyNum : 0;
+
+  async function submit() {
+    if (!product || !validQty) return;
+    try {
+      setPlacing(true);
+      await apiPlaceOrder(product.id, qtyNum);
+      toast.success(t("Order placed successfully"));
+      onClose();
+      navigate({ to: "/app/$", params: { _splat: "buyer/orders" } });
+    } catch (err: unknown) {
+      toast.error(friendlyOrderError(err, t("Could not place order.")));
+    } finally {
+      setPlacing(false);
+    }
+  }
+
   if (productId === null) return null;
   return (
     <Dialog open onOpenChange={onClose}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>{t("Ordering is coming soon")}</DialogTitle>
+          <DialogTitle>{t("Place Order")}</DialogTitle>
           <DialogDescription>
-            {t("Checkout, cart and payments arrive in a future module. No order is placed here.")}
+            {product
+              ? `${product.name} • ${sellerDisplayName(product.seller)} • ${unitPrice(product.price, product.unit)}`
+              : t("Enter a quantity and confirm. The backend recalculates the final total.")}
           </DialogDescription>
         </DialogHeader>
         {loading && (
@@ -248,19 +290,42 @@ function MarketplaceBuyDialog({
         )}
         {error && <p className="text-sm text-destructive">{error}</p>}
         {product && (
-          <dl className="grid grid-cols-2 gap-3 text-sm">
-            <Row label={t("Product")} value={product.name} />
-            <Row label={t("Seller")} value={sellerDisplayName(product.seller)} />
-            <Row
-              label={t("Available Quantity")}
-              value={`${product.quantity} ${t(product.unit)}`}
-            />
-            <Row label={t("Price Per Unit")} value={unitPrice(product.price, product.unit)} />
-          </dl>
+          <div className="grid gap-3">
+            <dl className="grid grid-cols-2 gap-3 text-sm">
+              <Row label={t("Product")} value={product.name} />
+              <Row label={t("Seller")} value={sellerDisplayName(product.seller)} />
+              <Row
+                label={t("Available Quantity")}
+                value={`${product.quantity} ${t(product.unit)}`}
+              />
+              <Row label={t("Price Per Unit")} value={unitPrice(product.price, product.unit)} />
+            </dl>
+            <div>
+              <Label>
+                {t("Quantity")} ({t(product.unit)})
+              </Label>
+              <Input
+                className="mt-1.5"
+                type="number"
+                min={1}
+                max={product.quantity}
+                step="any"
+                value={qty}
+                onChange={(e) => setQty(e.target.value)}
+              />
+              <p className="mt-1 text-xs text-muted-foreground">
+                {t("Total")}: {inr(previewTotal)}
+              </p>
+            </div>
+          </div>
         )}
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>
-            {t("Close")}
+            {t("Cancel")}
+          </Button>
+          <Button disabled={!validQty || placing} onClick={() => void submit()}>
+            {placing && <Loader2 className="size-4 animate-spin" />}
+            {t("Place Order")}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -1177,9 +1242,6 @@ export function BuyerProductDetail({ productId }: { productId: string }) {
           <SectionCard title={t("Actions")}>
             <div className="grid gap-2">
               <Button onClick={() => setShowBuy(true)}>{t("Buy Now")}</Button>
-              <p className="text-xs text-muted-foreground">
-                {t("Ordering is coming soon — checkout, cart and payments are a future module.")}
-              </p>
               <Button
                 variant="outline"
                 className="gap-2"
@@ -1201,57 +1263,66 @@ export function BuyerProductDetail({ productId }: { productId: string }) {
 /* ------------------------------------------------------------------ orders */
 
 export function BuyerOrdersPage({ orderId }: { orderId?: string }) {
-  const { orders, products, cancelOrder, addReview } = useStore();
-  const search = useAppSearch();
   const navigate = useNavigate();
-  const [status, setStatus] = useState(search.filter === "active" ? "Active" : "All");
-  const [detail, setDetail] = useState<Order | null>(null);
-  const [confirmCancel, setConfirmCancel] = useState<Order | null>(null);
-  const [review, setReview] = useState<Order | null>(null);
-  const [buy, setBuy] = useState<Product | null>(null);
-  const [rating, setRating] = useState("5");
-  const [text, setText] = useState("");
+  const [liveOrders, setLiveOrders] = useState<BackendOrder[]>([]);
+  const [liveLoading, setLiveLoading] = useState(true);
+  const [liveError, setLiveError] = useState("");
+  const [status, setStatus] = useState<BackendOrderStatus | "All">("All");
+  const [query, setQuery] = useState("");
+  const [cancellingId, setCancellingId] = useState<number | null>(null);
 
-  const mine = orders.filter((o) => o.buyer === BUYER);
-  const current = orderId ? mine.find((o) => o.id === orderId) : null;
-  const filters = ["All", "Active", ...ORDER_FLOW, "Cancelled"];
-  const list = mine.filter((o) =>
-    status === "All"
-      ? true
-      : status === "Active"
-        ? o.status !== "Completed" && o.status !== "Cancelled"
-        : o.status === status,
-  );
+  const loadLiveOrders = useCallback(async () => {
+    try {
+      setLiveLoading(true);
+      setLiveError("");
+      setLiveOrders(await fetchMyOrders());
+    } catch (err: unknown) {
+      setLiveError(friendlyOrderError(err, t("Could not load orders.")));
+    } finally {
+      setLiveLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadLiveOrders();
+  }, [loadLiveOrders]);
+
+  const liveFiltered = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    return liveOrders.filter((o) => {
+      if (status !== "All" && o.status !== status) return false;
+      if (!needle) return true;
+      const hay = [
+        String(o.id),
+        ...o.items.map((i) => i.productName),
+        o.items[0]?.seller?.name ?? "",
+        o.items[0]?.seller?.sellerProfile?.businessName ?? "",
+      ]
+        .join(" ")
+        .toLowerCase();
+      return hay.includes(needle);
+    });
+  }, [liveOrders, status, query]);
+
+  async function cancelLiveOrder(id: number) {
+    try {
+      setCancellingId(id);
+      await cancelMyOrder(id);
+      toast.success(t("Order cancelled successfully"));
+      await loadLiveOrders();
+    } catch (err: unknown) {
+      toast.error(friendlyOrderError(err, t("Could not cancel order.")));
+    } finally {
+      setCancellingId(null);
+    }
+  }
 
   if (orderId) {
-    if (!current) {
-      return (
-        <>
-          <PageHeader title={t("Order Details")} breadcrumb={[t("Buyer"), t("Orders")]} />
-          <EmptyState
-            icon={Receipt}
-            title={t("No orders yet.")}
-            desc={t("This order could not be found.")}
-            action={
-              <Link to="/app/$" params={{ _splat: "buyer/orders" }}>
-                <Button>{t("My Orders")}</Button>
-              </Link>
-            }
-          />
-        </>
-      );
-    }
     return (
-      <OrderDetailView
-        order={current}
-        onCancel={() => setConfirmCancel(current)}
-        confirmCancel={confirmCancel}
-        closeCancel={() => setConfirmCancel(null)}
-        doCancel={() => {
-          cancelOrder(current.id);
-          setConfirmCancel(null);
-          toast.success(t("Order cancelled"));
-        }}
+      <BuyerLiveOrderDetail
+        orderId={orderId}
+        onBack={() => navigate({ to: "/app/$", params: { _splat: "buyer/orders" } })}
+        onChanged={() => void loadLiveOrders()}
       />
     );
   }
@@ -1260,18 +1331,23 @@ export function BuyerOrdersPage({ orderId }: { orderId?: string }) {
     <>
       <PageHeader
         title={t("My Orders")}
-        subtitle={t("Track produce you have ordered from sellers.")}
+        subtitle={t("Live backend orders: stock changes only after the seller confirms.")}
         breadcrumb={[t("Buyer"), t("Orders")]}
         action={
-          <Link to="/app/$" params={{ _splat: "buyer/marketplace" }}>
-            <Button variant="outline" className="gap-2">
-              <ShoppingBag className="size-4" /> {t("Marketplace")}
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => void loadLiveOrders()}>
+              {t("Refresh")}
             </Button>
-          </Link>
+            <Link to="/app/$" params={{ _splat: "buyer/marketplace" }}>
+              <Button variant="outline" className="gap-2">
+                <ShoppingBag className="size-4" /> {t("Marketplace")}
+              </Button>
+            </Link>
+          </div>
         }
       />
-      <div className="mb-4 flex flex-wrap gap-2">
-        {filters.map((f) => (
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        {(["All", ...BACKEND_ORDER_STATUSES] as const).map((f) => (
           <Button
             key={f}
             size="sm"
@@ -1279,16 +1355,33 @@ export function BuyerOrdersPage({ orderId }: { orderId?: string }) {
             className="h-8 rounded-full text-xs"
             onClick={() => setStatus(f)}
           >
-            {t(f)}
+            {f === "All" ? t("All") : t(orderStatusLabel(f))}
           </Button>
         ))}
+        <Input
+          className="w-52"
+          placeholder={t("Search orders...")}
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
       </div>
 
-      {list.length === 0 ? (
+      {liveLoading ? (
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Loader2 className="size-4 animate-spin" /> {t("Loading orders...")}
+        </div>
+      ) : liveError ? (
         <EmptyState
           icon={Receipt}
-          title={t("No orders yet.")}
-          desc={t("Your produce orders will appear here once you place them.")}
+          title={t("Could not load orders")}
+          desc={liveError}
+          action={<Button onClick={() => void loadLiveOrders()}>{t("Retry")}</Button>}
+        />
+      ) : liveFiltered.length === 0 ? (
+        <EmptyState
+          icon={Receipt}
+          title={t("No live orders found.")}
+          desc={t("Place an order from the Marketplace and it will appear here.")}
           action={
             <Link to="/app/$" params={{ _splat: "buyer/marketplace" }}>
               <Button>{t("Browse Marketplace")}</Button>
@@ -1297,264 +1390,219 @@ export function BuyerOrdersPage({ orderId }: { orderId?: string }) {
         />
       ) : (
         <SectionCard title={t("Order History")}>
+          <div className="mb-3">
+            <Badge variant="outline">
+              {t("Mock orders are hidden here; only live backend orders are shown.")}
+            </Badge>
+          </div>
           <div className="overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>{t("Order ID")}</TableHead>
-                  <TableHead>{t("Product")}</TableHead>
                   <TableHead>{t("Seller")}</TableHead>
+                  <TableHead>{t("Products")}</TableHead>
                   <TableHead>{t("Quantity")}</TableHead>
-                  <TableHead>{t("Amount")}</TableHead>
-                  <TableHead>{t("Order Date")}</TableHead>
-                  <TableHead>{t("Delivery")}</TableHead>
+                  <TableHead>{t("Total")}</TableHead>
                   <TableHead>{t("Status")}</TableHead>
+                  <TableHead>{t("Created Date")}</TableHead>
                   <TableHead className="text-right">{t("Action")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {list.map((o) => (
-                  <TableRow key={o.id}>
-                    <TableCell className="font-medium">{o.id}</TableCell>
-                    <TableCell>{o.items.map((i) => t(i.name)).join(", ")}</TableCell>
-                    <TableCell>{o.seller}</TableCell>
-                    <TableCell>{o.items.map((i) => `${i.qty} ${t(i.unit)}`).join(", ")}</TableCell>
-                    <TableCell className="font-semibold text-forest">{inr(o.total)}</TableCell>
-                    <TableCell className="text-muted-foreground">{t(o.date)}</TableCell>
-                    <TableCell>{t(o.fulfilment)}</TableCell>
-                    <TableCell>
-                      <StatusBadge status={o.status} />
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <Button size="sm" variant="outline" onClick={() => setDetail(o)}>
-                        {t("View")}
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))}
+                {liveFiltered.map((o) => {
+                  const sellerName =
+                    o.items[0]?.seller?.sellerProfile?.businessName?.trim() ||
+                    o.items[0]?.seller?.name ||
+                    "—";
+                  return (
+                    <TableRow key={o.id}>
+                      <TableCell className="font-medium">#{o.id}</TableCell>
+                      <TableCell>{sellerName}</TableCell>
+                      <TableCell>{o.items.map((i) => i.productName).join(", ")}</TableCell>
+                      <TableCell>
+                        {o.items.map((i) => `${i.quantity} ${t(i.unit)}`).join(", ")}
+                      </TableCell>
+                      <TableCell className="font-semibold text-forest">
+                        {inr(o.totalAmount)}
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline">{t(orderStatusLabel(o.status))}</Badge>
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap text-muted-foreground">
+                        {new Date(o.createdAt).toLocaleString()}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex justify-end gap-1.5">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() =>
+                              navigate({
+                                to: "/app/$",
+                                params: { _splat: `buyer/orders/${o.id}` },
+                              })
+                            }
+                          >
+                            {t("View")}
+                          </Button>
+                          {o.status === "PENDING" && (
+                            <Button
+                              size="sm"
+                              variant="destructive"
+                              disabled={cancellingId === o.id}
+                              onClick={() => void cancelLiveOrder(o.id)}
+                            >
+                              {cancellingId === o.id && (
+                                <Loader2 className="size-3.5 animate-spin" />
+                              )}
+                              {t("Cancel Order")}
+                            </Button>
+                          )}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
           </div>
         </SectionCard>
       )}
+    </>
+  );
+}
 
-      {/* order detail dialog */}
-      <Dialog open={!!detail} onOpenChange={() => setDetail(null)}>
-        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle>
-              {t("Order Details")} — {detail?.id}
-            </DialogTitle>
-          </DialogHeader>
-          {detail &&
-            (() => {
-              const live = orders.find((o) => o.id === detail.id) ?? detail;
-              const item = live.items[0]!;
-              const product = products.find((p) => p.id === item.productId);
-              const profile = sellerOf(live.seller);
-              const cancellable = live.status === "New" || live.status === "Confirmed";
-              return (
-                <>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <StatusBadge status={live.status} />
-                    <Badge variant="secondary">{t(live.fulfilment)}</Badge>
-                    <Badge variant="outline">{t(live.payment)}</Badge>
-                  </div>
-                  {product && (
-                    <img
-                      src={product.image}
-                      alt={t(item.name)}
-                      className="h-36 w-full rounded-xl object-cover"
-                    />
-                  )}
-                  <dl className="grid grid-cols-2 gap-3 text-sm">
-                    <Row label={t("Order Date")} value={t(live.date)} />
-                    <Row label={t("Product")} value={live.items.map((i) => t(i.name)).join(", ")} />
-                    <Row label={t("Seller")} value={live.seller} />
-                    <Row label={t("Seller Phone")} value={profile?.phone ?? live.mobile} />
-                    <Row label={t("Seller Location")} value={t(profile?.district ?? "Solapur")} />
-                    <Row label={t("Quantity")} value={`${item.qty} ${t(item.unit)}`} />
-                    <Row label={t("Unit Price")} value={unitPrice(item.price, item.unit)} />
-                    <Row label={t("Subtotal")} value={inr(item.qty * item.price)} />
-                    <Row
-                      label={t("Delivery Charge")}
-                      value={inr(Math.max(0, live.total - item.qty * item.price))}
-                    />
-                    <Row label={t("Total")} value={inr(live.total)} />
-                    <Row label={t("Payment Method")} value={t(live.payment)} />
-                    <Row
-                      label={t("Payment Status")}
-                      value={live.status === "Completed" ? t("Paid") : t("Pending")}
-                    />
-                    <Row label={t("Delivery Method")} value={t(live.fulfilment)} />
-                  </dl>
-                  <p className="text-sm text-muted-foreground">{live.address}</p>
-                  <div className="rounded-xl bg-pale/60 p-3 text-xs">
-                    <p className="mb-1 font-semibold">{t("Order Timeline")}</p>
-                    {ORDER_FLOW.map((s, i) => (
-                      <p
-                        key={s}
-                        className={
-                          ORDER_FLOW.indexOf(live.status) >= i
-                            ? "font-medium text-forest"
-                            : "text-muted-foreground"
-                        }
-                      >
-                        {ORDER_FLOW.indexOf(live.status) >= i ? "●" : "○"}{" "}
-                        {t(s === "New" ? "Order Placed" : s)}
-                      </p>
-                    ))}
-                    {live.status === "Cancelled" && (
-                      <p className="text-destructive">● {t("Cancelled")}</p>
-                    )}
-                  </div>
-                  <DialogFooter className="flex-wrap gap-2">
-                    <Button
-                      variant="outline"
-                      className="gap-2"
-                      onClick={() => toast.info(`${t("Calling")} ${live.seller} (demo)`)}
-                    >
-                      <Phone className="size-4" /> {t("Contact Seller")}
-                    </Button>
-                    <Button
-                      variant="outline"
-                      onClick={() => toast.success(t("Receipt downloaded (demo)"))}
-                    >
-                      {t("Download Receipt")}
-                    </Button>
-                    {product && (
-                      <Button
-                        variant="outline"
-                        onClick={() => {
-                          setDetail(null);
-                          setBuy(product);
-                        }}
-                      >
-                        {t("Reorder")}
-                      </Button>
-                    )}
-                    {live.status === "Completed" && (
-                      <Button
-                        variant="outline"
-                        onClick={() => {
-                          setDetail(null);
-                          setReview(live);
-                        }}
-                      >
-                        {t("Write a Review")}
-                      </Button>
-                    )}
-                    {cancellable && (
-                      <Button
-                        variant="destructive"
-                        onClick={() => {
-                          setDetail(null);
-                          setConfirmCancel(live);
-                        }}
-                      >
-                        {t("Cancel Order")}
-                      </Button>
-                    )}
-                  </DialogFooter>
-                </>
-              );
-            })()}
-        </DialogContent>
-      </Dialog>
+function BuyerLiveOrderDetail({
+  orderId,
+  onBack,
+  onChanged,
+}: {
+  orderId: string;
+  onBack: () => void;
+  onChanged: () => void;
+}) {
+  const [order, setOrder] = useState<BackendOrder | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [cancelling, setCancelling] = useState(false);
+  const id = Number(orderId);
 
-      {/* cancel confirmation */}
-      <Dialog open={!!confirmCancel} onOpenChange={() => setConfirmCancel(null)}>
-        <DialogContent className="sm:max-w-sm">
-          <DialogHeader>
-            <DialogTitle>{t("Cancel Order")}</DialogTitle>
-            <DialogDescription>
-              {t("Are you sure you want to cancel this order?")}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setConfirmCancel(null)}>
-              {t("Keep Order")}
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={() => {
-                cancelOrder(confirmCancel!.id);
-                setConfirmCancel(null);
-                toast.success(t("Order cancelled"));
-              }}
-            >
-              {t("Cancel Order")}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+  const load = useCallback(async () => {
+    if (!Number.isInteger(id) || id <= 0) {
+      setError(t("Invalid order id."));
+      setLoading(false);
+      return;
+    }
+    try {
+      setLoading(true);
+      setError("");
+      setOrder(await fetchBuyerOrderById(id));
+    } catch (err: unknown) {
+      setError(friendlyOrderError(err, t("Could not load order.")));
+    } finally {
+      setLoading(false);
+    }
+  }, [id]);
 
-      {/* review */}
-      <Dialog open={!!review} onOpenChange={() => setReview(null)}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>{t("Write a Review")}</DialogTitle>
-          </DialogHeader>
-          <div>
-            <Label>{t("Rating")}</Label>
-            <Select value={rating} onValueChange={setRating}>
-              <SelectTrigger className="mt-1.5 w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {["5", "4", "3", "2", "1"].map((r) => (
-                  <SelectItem key={r} value={r}>
-                    {r} ★
-                  </SelectItem>
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  async function cancel() {
+    if (!order) return;
+    try {
+      setCancelling(true);
+      await cancelMyOrder(order.id);
+      toast.success(t("Order cancelled successfully"));
+      onChanged();
+      await load();
+    } catch (err: unknown) {
+      toast.error(friendlyOrderError(err, t("Could not cancel order.")));
+    } finally {
+      setCancelling(false);
+    }
+  }
+
+  return (
+    <>
+      <Button variant="ghost" className="mb-3 gap-1.5" onClick={onBack}>
+        <ArrowLeft className="size-4" /> {t("Back to My Orders")}
+      </Button>
+      {loading ? (
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Loader2 className="size-4 animate-spin" /> {t("Loading order...")}
+        </div>
+      ) : error || !order ? (
+        <EmptyState
+          icon={Receipt}
+          title={t("Order not found")}
+          desc={error || t("This order does not exist or belongs to another buyer.")}
+          action={<Button onClick={onBack}>{t("Back to My Orders")}</Button>}
+        />
+      ) : (
+        <div className="grid gap-4 lg:grid-cols-3">
+          <SectionCard title={`${t("Order")} #${order.id}`} className="lg:col-span-2">
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              <Badge variant="outline">{t(orderStatusLabel(order.status))}</Badge>
+              <span className="text-xs text-muted-foreground">
+                {t("Created")}: {new Date(order.createdAt).toLocaleString()}
+              </span>
+            </div>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{t("Product")}</TableHead>
+                  <TableHead>{t("Seller")}</TableHead>
+                  <TableHead>{t("Quantity")}</TableHead>
+                  <TableHead>{t("Unit Price")}</TableHead>
+                  <TableHead>{t("Subtotal")}</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {order.items.map((i) => (
+                  <TableRow key={i.id}>
+                    <TableCell className="font-medium">{i.productName}</TableCell>
+                    <TableCell>
+                      {i.seller?.sellerProfile?.businessName?.trim() || i.seller?.name || "—"}
+                    </TableCell>
+                    <TableCell>
+                      {i.quantity} {t(i.unit)}
+                    </TableCell>
+                    <TableCell>
+                      {inr(i.unitPrice)}/{t(i.unit)}
+                    </TableCell>
+                    <TableCell className="font-semibold">{inr(i.subtotal)}</TableCell>
+                  </TableRow>
                 ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div>
-            <Label>{t("Review")}</Label>
-            <Textarea
-              className="mt-1.5"
-              rows={3}
-              maxLength={300}
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-            />
-          </div>
-          <DialogFooter>
-            <Button
-              onClick={() => {
-                if (!text.trim()) {
-                  toast.error(t("Write a short review"));
-                  return;
-                }
-                addReview({
-                  buyer: BUYER,
-                  seller: review!.seller,
-                  product: review!.items[0]!.name,
-                  rating: Number(rating),
-                  quality: Number(rating),
-                  service: Number(rating),
-                  text: text.trim(),
-                  date: "21 Aug 2026",
-                });
-                setText("");
-                setReview(null);
-                toast.success(t("Thank you for your review."));
-              }}
-            >
-              {t("Submit Review")}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <BuyNowDialog
-        product={buy}
-        onClose={() => {
-          setBuy(null);
-          navigate({ to: "/app/$", params: { _splat: "buyer/orders" } });
-        }}
-      />
+              </TableBody>
+            </Table>
+            <div className="mt-3 flex justify-end text-sm">
+              <span className="text-muted-foreground">{t("Total")}:&nbsp;</span>
+              <span className="font-bold text-forest">{inr(order.totalAmount)}</span>
+            </div>
+          </SectionCard>
+          <SectionCard title={t("Actions")}>
+            <div className="grid gap-2 text-sm">
+              <Row label={t("Status")} value={t(orderStatusLabel(order.status))} />
+              <Row label={t("Total")} value={inr(order.totalAmount)} />
+              {order.status === "PENDING" ? (
+                <Button variant="destructive" disabled={cancelling} onClick={() => void cancel()}>
+                  {cancelling && <Loader2 className="size-4 animate-spin" />}
+                  {t("Cancel Order")}
+                </Button>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  {t("Only PENDING orders can be cancelled by the buyer.")}
+                </p>
+              )}
+              <Button variant="outline" onClick={onBack}>
+                {t("Back to My Orders")}
+              </Button>
+            </div>
+          </SectionCard>
+        </div>
+      )}
     </>
   );
 }
