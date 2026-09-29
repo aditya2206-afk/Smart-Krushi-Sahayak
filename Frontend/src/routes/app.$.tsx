@@ -30,6 +30,10 @@ import {
 } from "@/pages/officer";
 import { OfficerCertificationsPage } from "@/pages/officer/Certifications";
 import { AdminOfficersPage, OfficerDetailPage } from "@/pages/admin/Officers";
+import { AdminRealUsersPage } from "@/pages/admin/AdminRealUsers";
+import { AdminRealProductsPage } from "@/pages/admin/AdminRealProducts";
+import { AdminRealOrdersPage } from "@/pages/admin/AdminRealOrders";
+import { AdminRealQueriesPage } from "@/pages/admin/AdminRealQueries";
 import {
   AddProductPage,
   EarningsPage,
@@ -238,23 +242,23 @@ function renderPage(role: Role, page: string, sub?: string) {
 
   switch (page) {
     case "users":
-      return <AdminUsersPage />;
+      return <AdminRealUsersPage />;
     case "farmers":
-      return <AdminUsersPage filter="Farmer" />;
+      return <AdminRealUsersPage presetRole="FARMER" />;
     case "sellers":
-      return <AdminUsersPage filter="Seller" />;
+      return <AdminRealUsersPage presetRole="SELLER" />;
     case "officers":
       return sub ? <OfficerDetailPage officerId={sub} /> : <AdminOfficersPage />;
     case "buyers":
-      return <AdminUsersPage filter="Buyer" />;
+      return <AdminRealUsersPage presetRole="BUYER" />;
     case "approvals":
       return <ApprovalsPage />;
     case "queries":
-      return <AdminQueriesPage />;
+      return <AdminRealQueriesPage />;
     case "products":
-      return <AdminProductsPage />;
+      return <AdminRealProductsPage />;
     case "orders":
-      return <AdminOrdersPage />;
+      return <AdminRealOrdersPage />;
     case "schemes":
       return <AdminSchemesPage />;
     case "services":

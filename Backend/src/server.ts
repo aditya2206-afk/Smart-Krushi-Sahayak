@@ -9,6 +9,7 @@ import orderRoutes from "./routes/orderRoutes.js";
 import sellerOrderRoutes from "./routes/sellerOrderRoutes.js";
 import queryRoutes from "./routes/queryRoutes.js";
 import officerQueryRoutes from "./routes/officerQueryRoutes.js";
+import adminRoutes from "./routes/adminRoutes.js";
 
 dotenv.config();
 
@@ -30,6 +31,7 @@ app.use("/api/orders", orderRoutes);
 app.use("/api/seller/orders", sellerOrderRoutes);
 app.use("/api/queries", queryRoutes);
 app.use("/api/officer", officerQueryRoutes);
+app.use("/api/admin", adminRoutes);
 
 app.get("/api/health", (_req: Request, res: Response) => {
   res.json({
