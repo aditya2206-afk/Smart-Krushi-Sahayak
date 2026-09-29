@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Area,
   AreaChart,
@@ -61,6 +61,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { toast } from "sonner";
 import {
   EmptyState,
+  ErrorState,
+  LoaderState,
   PageHeader,
   SectionCard,
   StatCard,
@@ -68,6 +70,7 @@ import {
 } from "@/components/skl/common";
 import { inr, useStore } from "@/lib/skl/store";
 import { Link } from "@tanstack/react-router";
+import { fetchAdminDashboard, type AdminDashboardData } from "@/lib/skl/admin";
 import {
   ACTIVITY_LOG,
   ARTICLES,
@@ -85,30 +88,36 @@ import { t } from "@/lib/skl/i18n";
 const COLORS = ["#2E7D32", "#66BB6A", "#F9A825", "#26A69A", "#8D6E63", "#5C6BC0"];
 
 export function AdminDashboard() {
-  const {
-    queries,
-    orders,
-    officers,
-    approvedBuyers,
-    rejectedBuyers,
-    approvedSellers,
-    rejectedSellers,
-    authUser,
-  } = useStore();
+  const { authUser } = useStore();
   const displayName = authUser?.name?.trim() ?? "";
-  const pendingApprovals =
-    officers.filter((o) => !o.accountVerified).length +
-    PENDING_BUYERS.filter((s) => !approvedBuyers.includes(s.id) && !rejectedBuyers.includes(s.id))
-      .length +
-    PENDING_SELLERS.filter(
-      (s) => !approvedSellers.includes(s.id) && !rejectedSellers.includes(s.id),
-    ).length;
+  const [dashboard, setDashboard] = useState<AdminDashboardData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      setLoadError("");
+      try {
+        const data = await fetchAdminDashboard();
+        if (!cancelled) setDashboard(data);
+      } catch (e) {
+        if (!cancelled) setLoadError(e instanceof Error ? e.message : "Failed to load dashboard.");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   return (
     <>
       <PageHeader
         title={displayName ? `Welcome, ${displayName}! 👋` : `Welcome! 👋`}
-        subtitle={t("Smart Krushi Sahayak \u2022 Maharashtra deployment \u2022 Live demo data")}
+        subtitle={t("Smart Krushi Sahayak • Live platform data from PostgreSQL")}
         breadcrumb={["Admin", "Dashboard"]}
         action={
           <Button
@@ -120,52 +129,75 @@ export function AdminDashboard() {
           </Button>
         }
       />
+      {loading && <LoaderState label={t("Loading live dashboard...")} />}
+      {!loading && loadError && <ErrorState title={t("Failed to load dashboard")} desc={loadError} />}
+      {!loading && !loadError && dashboard && (
+      <>
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
           icon={Users}
           label={t("Total Users")}
-          value="12,486"
-          hint={t("+1,436 this month")}
+          value={String(dashboard.totalUsers)}
+          hint={t(`${dashboard.activeUsers} active • ${dashboard.inactiveUsers} inactive`)}
         />
         <StatCard
           icon={Sprout}
           label={t("Farmers")}
-          value="11,204"
-          hint={t("Across 12 districts")}
+          value={String(dashboard.farmers)}
+          hint={t("Registered farmers")}
           tone="forest"
         />
         <StatCard
-          icon={BadgeCheck}
-          label={t("Krushi Adhikaris")}
-          value="182"
-          hint={t("Verified experts")}
-          tone="harvest"
+          icon={Store}
+          label={t("Sellers")}
+          value={String(dashboard.sellers)}
+          hint={t("Produce sellers")}
         />
         <StatCard
-          icon={ShieldCheck}
-          label={t("Pending Approvals")}
-          value={pendingApprovals}
-          hint={t("Officers, sellers & buyers")}
-          tone="warning"
+          icon={Store}
+          label={t("Buyers")}
+          value={String(dashboard.buyers)}
+          hint={t("Registered buyers")}
         />
       </div>
       <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
-          icon={ClipboardList}
-          label={t("Total Queries")}
-          value={2221 + queries.length}
-          hint={t("87% resolved")}
+          icon={BadgeCheck}
+          label={t("Krushi Adhikaris")}
+          value={String(dashboard.officers)}
+          hint={t("Field officers")}
+          tone="harvest"
         />
         <StatCard
+          icon={ShieldCheck}
+          label={t("Admins")}
+          value={String(dashboard.admins)}
+          hint={t("Platform admins")}
+        />
+        <StatCard
+          icon={ClipboardList}
+          label={t("Farmer Queries")}
+          value={String(dashboard.queries.total)}
+          hint={t(`${dashboard.queries.pending} pending • ${dashboard.queries.answered} answered`)}
+        />
+        <StatCard
+          icon={Package}
+          label={t("Produce Listings")}
+          value={String(dashboard.listings.total)}
+          hint={t(`${dashboard.listings.active} active`)}
+        />
+      </div>
+      <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <StatCard
           icon={Receipt}
-          label={t("Marketplace Orders")}
-          value={688 + orders.length}
+          label={t("Orders")}
+          value={String(dashboard.orders.total)}
+          hint={t(`${dashboard.orders.pending} pending • ${dashboard.orders.completed} delivered`)}
           tone="forest"
         />
-        <StatCard icon={IndianRupee} label={t("GMV (Aug)")} value={inr(402000)} tone="harvest" />
-        <StatCard icon={Store} label={t("Buyers")} value="1,100" hint={t("642 verified")} />
       </div>
-
+      </>
+      )}
       <div className="mt-4 grid gap-4 lg:grid-cols-3">
         <SectionCard
           title={t("User Growth")}

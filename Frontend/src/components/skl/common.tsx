@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { Leaf, Sprout, type LucideIcon } from "lucide-react";
+import { Leaf, Loader2, Sprout, TriangleAlert, type LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
@@ -212,6 +212,73 @@ export function TrendBadge({
 
 export function trendOf(change: number): "Up" | "Down" | "Stable" {
   return change > 0 ? "Up" : change < 0 ? "Down" : "Stable";
+}
+
+export function LoaderState({ label }: { label?: string }) {
+  return (
+    <div className="flex items-center justify-center gap-2 rounded-2xl border bg-card px-6 py-14 text-sm text-muted-foreground">
+      <Loader2 className="size-5 animate-spin text-primary" />
+      {label ?? t("Loading...")}
+    </div>
+  );
+}
+
+export function ErrorState({
+  title,
+  desc,
+  onRetry,
+}: {
+  title: string;
+  desc: string;
+  onRetry?: () => void;
+}) {
+  return (
+    <div className="flex flex-col items-center justify-center rounded-2xl border border-destructive/30 bg-destructive/5 px-6 py-14 text-center">
+      <span className="grid size-14 place-items-center rounded-2xl bg-destructive/10 text-destructive">
+        <TriangleAlert className="size-7" />
+      </span>
+      <h3 className="mt-4 font-semibold">{title}</h3>
+      <p className="mt-1 max-w-sm text-sm text-muted-foreground">{desc}</p>
+      {onRetry && (
+        <Button className="mt-4" variant="outline" onClick={onRetry}>
+          {t("Try Again")}
+        </Button>
+      )}
+    </div>
+  );
+}
+
+export function PaginationControls({
+  page,
+  totalPages,
+  total,
+  onPage,
+}: {
+  page: number;
+  totalPages: number;
+  total: number;
+  onPage: (page: number) => void;
+}) {
+  return (
+    <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+      <p className="text-xs text-muted-foreground">
+        {t("Total")}: {total} • {t("Page")} {page} / {Math.max(totalPages, 1)}
+      </p>
+      <div className="flex gap-2">
+        <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => onPage(page - 1)}>
+          {t("Previous")}
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={page >= totalPages}
+          onClick={() => onPage(page + 1)}
+        >
+          {t("Next")}
+        </Button>
+      </div>
+    </div>
+  );
 }
 
 export function EmptyState({
