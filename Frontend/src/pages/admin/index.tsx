@@ -93,7 +93,9 @@ export function AdminDashboard() {
     rejectedBuyers,
     approvedSellers,
     rejectedSellers,
+    authUser,
   } = useStore();
+  const displayName = authUser?.name?.trim() ?? "";
   const pendingApprovals =
     officers.filter((o) => !o.accountVerified).length +
     PENDING_BUYERS.filter((s) => !approvedBuyers.includes(s.id) && !rejectedBuyers.includes(s.id))
@@ -105,7 +107,7 @@ export function AdminDashboard() {
   return (
     <>
       <PageHeader
-        title={t("Platform Overview")}
+        title={displayName ? `Welcome, ${displayName}! 👋` : `Welcome! 👋`}
         subtitle={t("Smart Krushi Sahayak \u2022 Maharashtra deployment \u2022 Live demo data")}
         breadcrumb={["Admin", "Dashboard"]}
         action={

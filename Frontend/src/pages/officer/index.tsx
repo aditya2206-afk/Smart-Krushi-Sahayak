@@ -67,12 +67,13 @@ import {
   type OfficerQueryFilters,
 } from "@/lib/skl/queries";
 import { t } from "@/lib/skl/i18n";
+import { useStore } from "@/lib/skl/store";
 
-const OFFICER = "Dr. S. K. Deshmukh";
-void OFFICER;
 const CHART_COLORS = ["#2E7D32", "#66BB6A", "#F9A825", "#26A69A", "#8D6E63", "#5C6BC0"];
 
 export function OfficerDashboard() {
+  const { authUser } = useStore();
+  const displayName = authUser?.name?.trim() ?? "";
   const [recent, setRecent] = useState<BackendQuery[]>([]);
   const [pendingCount, setPendingCount] = useState(0);
   const [answeredCount, setAnsweredCount] = useState(0);
@@ -100,7 +101,7 @@ export function OfficerDashboard() {
   return (
     <>
       <PageHeader
-        title={t("Welcome, Dr. Deshmukh")}
+        title={displayName ? `Welcome, ${displayName}! 👋` : `Welcome! 👋`}
         subtitle={t(
           "Agriculture Officer \u2022 Solapur District \u2022 Soybean, Cotton & Pulses specialist",
         )}

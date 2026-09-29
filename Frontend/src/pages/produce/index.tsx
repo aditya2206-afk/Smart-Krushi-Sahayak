@@ -186,7 +186,8 @@ function bySeller<T extends { seller: string }>(items: T[]) {
 /* ------------------------------------------------------------------ dashboard */
 
 export function ProduceDashboard() {
-  const { orders } = useStore();
+  const { orders, authUser } = useStore();
+  const displayName = authUser?.name?.trim() ?? "";
   const [listings, setListings] = useState<BackendProduct[]>([]);
   const [loadingListings, setLoadingListings] = useState(true);
   const [listingsError, setListingsError] = useState("");
@@ -225,7 +226,7 @@ export function ProduceDashboard() {
   return (
     <>
       <PageHeader
-        title={t("Seller Dashboard")}
+        title={displayName ? `Welcome, ${displayName}! 👋` : `Welcome! 👋`}
         subtitle={t("Manage your agricultural produce, buyers, market prices and orders.")}
         breadcrumb={[t("Seller"), t("Dashboard")]}
         action={<Badge className="rounded-full">{t("🟢 Accepting Orders")}</Badge>}
