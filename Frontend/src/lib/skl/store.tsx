@@ -8,7 +8,6 @@ import {
   type ReactNode,
 } from "react";
 import {
-  DEMO_USERS,
   requiredCertsVerified,
   seedChat,
   seedNotifications,
@@ -237,9 +236,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             .slice(0, 2)
             .toUpperCase(),
         }
-      : state.role
-        ? DEMO_USERS[state.role]
-        : null;
+      : null;
     return {
       ...state,
       hydrated,
@@ -778,6 +775,27 @@ export function useStore() {
   const ctx = useContext(StoreContext);
   if (!ctx) throw new Error("useStore must be used inside StoreProvider");
   return ctx;
+}
+
+/**
+ * Single source of truth for the currently logged-in user.
+ * Reuses the authenticated session already stored in the global store
+ * (persisted via authToken + authUser in localStorage).
+ */
+export function useCurrentUser() {
+  const { authUser } = useStore();
+  return authUser;
+}
+
+/** Display name for greetings. Falls back to neutral text, never a demo name. */
+export function displayNameOf(authUser: SafeAuthUser | null | undefined): string {
+  const name = authUser?.name?.trim();
+  return name ? name : "";
+}
+
+export function greetingTitle(authUser: SafeAuthUser | null | undefined, fallback: string): string {
+  const name = displayNameOf(authUser);
+  return name ? `Welcome, ${name}! 👋` : `${fallback} 👋`;
 }
 
 export function inr(n: number | undefined | null) {

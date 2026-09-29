@@ -679,7 +679,8 @@ function LegacyContactSellerDialog({
 /* ------------------------------------------------------------------ dashboard */
 
 export function BuyerDashboard() {
-  const { products, orders, savedListings } = useStore();
+  const { products, orders, savedListings, authUser } = useStore();
+  const displayName = authUser?.name?.trim() ?? "";
   const available = products.filter((p) => p.active && p.stock > 0);
   const myOrders = orders.filter((o) => o.buyer === BUYER);
   const activeOrders = myOrders.filter((o) => o.status !== "Completed" && o.status !== "Cancelled");
@@ -689,7 +690,7 @@ export function BuyerDashboard() {
   return (
     <>
       <PageHeader
-        title={t("Buyer Dashboard")}
+        title={displayName ? `Welcome, ${displayName}! 👋` : `Welcome! 👋`}
         subtitle={t("Discover fresh agricultural produce and buy directly from sellers.")}
         breadcrumb={[t("Buyer"), t("Dashboard")]}
       />

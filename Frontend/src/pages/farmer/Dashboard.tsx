@@ -59,7 +59,8 @@ const QUICK = [
 ];
 
 export function FarmerDashboard() {
-  const { queries, notifications, savedSchemes, t } = useStore();
+  const { queries, notifications, savedSchemes, t, authUser } = useStore();
+  const displayName = authUser?.name?.trim() ?? "";
   const mine = queries.filter((q) => q.farmer === "Ramesh Patil");
   const active = mine.filter((q) => q.status !== "Resolved").length;
   const resolved = mine.filter((q) => q.status === "Resolved").length;
@@ -70,7 +71,7 @@ export function FarmerDashboard() {
   return (
     <>
       <PageHeader
-        title={`${t("welcome")}, Ramesh Patil! 👋`}
+        title={displayName ? `${t("welcome")}, ${displayName}! 👋` : `${t("welcome")}! 👋`}
         subtitle={t(
           "Get expert advice for your crops, diseases, pesticides, fertilizers and more.",
         )}
