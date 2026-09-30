@@ -92,13 +92,20 @@ export function ChatPage({ as }: { as: "farmer" | "officer" }) {
         }
         breadcrumb={["Dashboard", "Chat"]}
       />
-      <div className="grid gap-4 lg:grid-cols-[20rem_1fr]">
+      <div
+        className={cn(
+          "w-full",
+          as === "officer"
+            ? "grid items-stretch gap-4 lg:grid-cols-[20rem_1fr]"
+            : "mx-auto max-w-[1100px]",
+        )}
+      >
         {as === "officer" && (
-          <Card className="gap-0 overflow-hidden p-0">
+          <Card className="flex h-[calc(100vh-250px)] min-h-[520px] flex-col gap-0 overflow-hidden p-0 sm:min-h-[550px]">
             <div className="border-b p-3">
               <Input placeholder={t("Search farmer conversations")} />
             </div>
-            <ScrollArea className="h-[26rem]">
+            <ScrollArea className="min-h-0 flex-1">
               {FARMERS.map((f) => (
                 <button
                   key={f.name}
@@ -137,9 +144,9 @@ export function ChatPage({ as }: { as: "farmer" | "officer" }) {
           </Card>
         )}
 
-        <Card className="flex h-[34rem] flex-col gap-0 overflow-hidden p-0">
-          <div className="flex items-center gap-3 border-b p-3">
-            <span className="grid size-10 place-items-center rounded-full bg-pale font-semibold text-forest">
+        <Card className="flex h-[calc(100vh-250px)] min-h-[520px] flex-col gap-0 overflow-hidden p-0 sm:min-h-[550px]">
+          <div className="flex flex-wrap items-center gap-3 border-b p-3 sm:gap-4 sm:p-4">
+            <span className="grid size-10 shrink-0 place-items-center rounded-full bg-pale font-semibold text-forest sm:size-12 sm:text-lg">
               {as === "farmer"
                 ? "SD"
                 : active
@@ -148,10 +155,10 @@ export function ChatPage({ as }: { as: "farmer" | "officer" }) {
                     .join("")}
             </span>
             <div className="min-w-0 flex-1">
-              <p className="truncate font-semibold">
+              <p className="truncate text-base font-semibold sm:text-lg">
                 {as === "farmer" ? "Dr. S. K. Deshmukh" : active}
               </p>
-              <p className="text-xs text-muted-foreground">
+              <p className="text-xs text-muted-foreground sm:text-sm">
                 {as === "farmer" ? "Krushi Adhikari" : "Farmer • Solapur"} ·{" "}
                 <span className="text-primary">{t("\ud83d\udfe2 Online")}</span>
               </p>
@@ -159,7 +166,7 @@ export function ChatPage({ as }: { as: "farmer" | "officer" }) {
             <Button
               variant="outline"
               size="sm"
-              className="gap-1.5"
+              className="shrink-0 gap-1.5"
               onClick={() => toast.info("Voice call is simulated in this prototype.")}
             >
               <Phone className="size-4" />{" "}
@@ -168,7 +175,7 @@ export function ChatPage({ as }: { as: "farmer" | "officer" }) {
             <Button
               variant="ghost"
               size="sm"
-              className="gap-1.5"
+              className="shrink-0 gap-1.5"
               onClick={() => toast.info("Opening profile (demo)")}
             >
               <UserCircle className="size-4" />{" "}
@@ -176,8 +183,8 @@ export function ChatPage({ as }: { as: "farmer" | "officer" }) {
             </Button>
           </div>
 
-          <ScrollArea className="flex-1 bg-pale/30 p-4">
-            <div className="space-y-3">
+          <ScrollArea className="min-h-0 flex-1 bg-pale/30">
+            <div className="space-y-3 p-4 sm:space-y-4 sm:p-6 lg:px-8">
               {chat.map((m) => (
                 <div
                   key={m.id}
@@ -185,7 +192,7 @@ export function ChatPage({ as }: { as: "farmer" | "officer" }) {
                 >
                   <div
                     className={cn(
-                      "max-w-[78%] rounded-2xl px-3.5 py-2.5 text-sm shadow-soft",
+                      "max-w-[85%] rounded-2xl px-3.5 py-2.5 text-sm break-words shadow-soft sm:max-w-[70%]",
                       m.from === me
                         ? "rounded-br-sm bg-primary text-primary-foreground"
                         : "rounded-bl-sm bg-card",
@@ -195,7 +202,7 @@ export function ChatPage({ as }: { as: "farmer" | "officer" }) {
                       <img
                         src={m.image}
                         alt="Shared crop"
-                        className="mb-2 h-32 w-48 rounded-lg object-cover"
+                        className="mb-2 h-auto max-h-72 w-full max-w-[18rem] rounded-lg object-cover"
                       />
                     )}
                     <p>{t(m.text)}</p>
@@ -226,7 +233,7 @@ export function ChatPage({ as }: { as: "farmer" | "officer" }) {
           </ScrollArea>
 
           <form
-            className="flex items-center gap-2 border-t p-2.5"
+            className="flex w-full items-center gap-1.5 border-t p-2 sm:gap-2 sm:p-3"
             onSubmit={(e) => {
               e.preventDefault();
               send();
@@ -236,6 +243,7 @@ export function ChatPage({ as }: { as: "farmer" | "officer" }) {
               type="button"
               variant="ghost"
               size="icon"
+              className="shrink-0"
               aria-label={t("Attach image")}
               onClick={() =>
                 send({ image: cropImages.leaf, text: "Sharing a photo of the affected leaves." })
@@ -247,6 +255,7 @@ export function ChatPage({ as }: { as: "farmer" | "officer" }) {
               type="button"
               variant="ghost"
               size="icon"
+              className="shrink-0"
               aria-label={t("Record voice")}
               onClick={() => toast.success("Voice note attached (demo)")}
             >
@@ -256,19 +265,21 @@ export function ChatPage({ as }: { as: "farmer" | "officer" }) {
               type="button"
               variant="ghost"
               size="icon"
+              className="shrink-0"
               aria-label={t("Emoji")}
               onClick={() => setText((t) => t + " 🙏")}
             >
               <Smile className="size-5" />
             </Button>
             <Input
+              className="min-w-0 flex-1"
               value={text}
               onChange={(e) => setText(e.target.value)}
               maxLength={500}
               placeholder={t("Type your message...")}
               aria-label={t("Message")}
             />
-            <Button type="submit" size="icon" aria-label={t("Send message")}>
+            <Button type="submit" size="icon" className="shrink-0" aria-label={t("Send message")}>
               <Send className="size-4" />
             </Button>
           </form>
