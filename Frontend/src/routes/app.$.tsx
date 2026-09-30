@@ -5,7 +5,7 @@ import { useStore } from "@/lib/skl/store";
 import type { Role } from "@/lib/skl/data";
 
 import { FarmerDashboard } from "@/pages/farmer/Dashboard";
-import { AskQuestionPage, DiagnosePage } from "@/pages/farmer/Ask";
+import { CropHelpPage, type CropHelpTab } from "@/pages/farmer/CropHelp";
 import { MyQuestionsPage } from "@/pages/farmer/Questions";
 import { MyCropsPage } from "@/pages/farmer/Crops";
 import { MandiPricesPage } from "@/pages/farmer/Mandi";
@@ -90,15 +90,19 @@ export const Route = createFileRoute("/app/$")({
       { name: "robots", content: "noindex" },
     ],
   }),
-  validateSearch: (search: Record<string, unknown>): { filter?: string; use?: string } => ({
+  validateSearch: (
+    search: Record<string, unknown>,
+  ): { filter?: string; use?: string; tab?: string } => ({
     ...(typeof search["filter"] === "string" ? { filter: search["filter"] } : {}),
     ...(typeof search["use"] === "string" ? { use: search["use"] } : {}),
+    ...(typeof search["tab"] === "string" ? { tab: search["tab"] } : {}),
   }),
   component: AppSplat,
 });
 
 function AppSplat() {
   const { _splat } = Route.useParams();
+  const { tab } = Route.useSearch();
   const { role, authUser, authChecked, refreshSession } = useStore();
   const path = (_splat ?? "").replace(/^\/+|\/+$/g, "");
   const [verifying, setVerifying] = useState(true);
@@ -136,11 +140,13 @@ function AppSplat() {
     return <Navigate to="/app/$" params={{ _splat: `${role}/dashboard` }} />;
   }
   const activeRole = role as Role;
+  // The combined Crop Help page keeps its selected view in the ?tab= search param.
+  const cropHelpTab: CropHelpTab = tab === "diagnose" ? "diagnose" : "ask";
 
-  return <AppShell>{renderPage(activeRole, page, sub)}</AppShell>;
+  return <AppShell>{renderPage(activeRole, page, sub, cropHelpTab)}</AppShell>;
 }
 
-function renderPage(role: Role, page: string, sub?: string) {
+function renderPage(role: Role, page: string, sub?: string, cropHelpTab: CropHelpTab = "ask") {
   if (page === "notifications") return <NotificationsPage role={role} />;
   if (page === "settings") return <SettingsPage />;
   if (page === "profile") return <ProfilePage role={role} />;
@@ -151,14 +157,32 @@ function renderPage(role: Role, page: string, sub?: string) {
 
   if (role === "farmer") {
     switch (page) {
+      // Backward compatibility: the separate Ask Question and Diagnose Crop
+      // pages are combined into the Crop Help page.
       case "ask":
-        return <AskQuestionPage />;
+        return (
+          <Navigate
+            to="/app/$"
+            params={{ _splat: "farmer/crop-help" }}
+            search={{ tab: "ask" }}
+            replace
+          />
+        );
+      case "diagnose":
+        return (
+          <Navigate
+            to="/app/$"
+            params={{ _splat: "farmer/crop-help" }}
+            search={{ tab: "diagnose" }}
+            replace
+          />
+        );
+      case "crop-help":
+        return <CropHelpPage initialTab={cropHelpTab} />;
       case "questions":
         return <MyQuestionsPage />;
       case "chat":
         return <ChatPage as="farmer" />;
-      case "diagnose":
-        return <DiagnosePage />;
       case "crops":
         return <MyCropsPage />;
       case "mandi-prices":

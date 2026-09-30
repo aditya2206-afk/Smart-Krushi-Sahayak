@@ -73,7 +73,7 @@ export function MyQuestionsPage() {
         subtitle={t("Every consultation you have submitted, with live status.")}
         breadcrumb={["Dashboard", "My Questions"]}
         action={
-          <Link to="/app/$" params={{ _splat: "farmer/ask" }}>
+          <Link to="/app/$" params={{ _splat: "farmer/crop-help" }} search={{ tab: "ask" }}>
             <Button>{t("Ask New Question")}</Button>
           </Link>
         }

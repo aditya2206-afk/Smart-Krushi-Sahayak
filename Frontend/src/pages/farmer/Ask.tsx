@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useNavigate } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import { CheckCircle2, Info, Scan } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -31,20 +31,11 @@ const SAMPLE_IMAGES = [cropImages.leaf, cropImages.Soybean, cropImages.Cotton, c
 export function ImageUploader({
   images,
   setImages,
-  disabledText,
 }: {
   images: string[];
   setImages: (i: string[]) => void;
-  disabledText?: string;
 }) {
   const [preview, setPreview] = useState<string | null>(null);
-  if (disabledText) {
-    return (
-      <p className="rounded-xl border border-dashed bg-muted/30 p-4 text-sm text-muted-foreground">
-        {disabledText}
-      </p>
-    );
-  }
   const add = () => {
     if (images.length >= 4) {
       toast.error("You can upload up to 4 images");
@@ -113,7 +104,8 @@ export function ImageUploader({
   );
 }
 
-export function AskQuestionPage() {
+/** Ask an Expert form — reused by the combined Crop Help page and the standalone page. */
+export function AskQuestionForm() {
   const navigate = useNavigate();
   const [crop, setCrop] = useState("Soybean");
   const [category, setCategory] = useState("Crop Disease");
@@ -152,11 +144,6 @@ export function AskQuestionPage() {
 
   return (
     <>
-      <PageHeader
-        title={t("Ask a Question")}
-        subtitle={t("Describe your crop problem \u2014 a verified Krushi Adhikari will review it.")}
-        breadcrumb={["Dashboard", "Ask Question"]}
-      />
       <div className="grid gap-4 lg:grid-cols-3">
         <div className="space-y-4 lg:col-span-2">
           <SectionCard title={t("Describe Your Problem")}>
@@ -243,14 +230,6 @@ export function AskQuestionPage() {
               {t("Voice upload is coming soon. Please describe your problem in text for this version.")}
             </p>
           </SectionCard>
-
-          <SectionCard title={t("Upload Crop Images")} desc={t("Coming soon")}>
-            <ImageUploader
-              images={[]}
-              setImages={() => undefined}
-              disabledText={t("Image upload is coming soon. Please submit a text-only query for this version.")}
-            />
-          </SectionCard>
         </div>
 
         <div className="space-y-4">
@@ -308,7 +287,25 @@ export function AskQuestionPage() {
   );
 }
 
-export function DiagnosePage() {
+/**
+ * Standalone Ask Question page (kept for backward compatibility — the
+ * /app/farmer/ask route now redirects to the combined Crop Help page).
+ */
+export function AskQuestionPage() {
+  return (
+    <>
+      <PageHeader
+        title={t("Ask a Question")}
+        subtitle={t("Describe your crop problem \u2014 a verified Krushi Adhikari will review it.")}
+        breadcrumb={["Dashboard", "Ask Question"]}
+      />
+      <AskQuestionForm />
+    </>
+  );
+}
+
+/** Diagnose Crop form — reused by the combined Crop Help page and the standalone page. */
+export function DiagnoseForm({ onAskExpert }: { onAskExpert: () => void }) {
   const [images, setImages] = useState<string[]>([]);
   const [crop, setCrop] = useState("Soybean");
   const [stage, setStage] = useState("Vegetative");
@@ -331,13 +328,6 @@ export function DiagnosePage() {
 
   return (
     <>
-      <PageHeader
-        title={t("Crop Problem Identification")}
-        subtitle={t(
-          "This preliminary check helps describe your problem. The final recommendation always comes from a Krushi Adhikari.",
-        )}
-        breadcrumb={["Dashboard", "Diagnose Crop"]}
-      />
       <div className="grid gap-4 lg:grid-cols-2">
         <SectionCard title={t("Upload Crop Image")}>
           <ImageUploader images={images} setImages={setImages} />
@@ -422,11 +412,9 @@ export function DiagnosePage() {
                 <p>{t("\u2022 Inspect soil moisture and drainage in the affected patch.")}</p>
                 <p>{t("\u2022 Do not spray before officer verification.")}</p>
               </div>
-              <Link to="/app/$" params={{ _splat: "farmer/ask" }}>
-                <Button className="mt-4 w-full">
-                  {t("Send to Krushi Adhikari for Verification")}
-                </Button>
-              </Link>
+              <Button className="mt-4 w-full" onClick={onAskExpert}>
+                {t("Send to Krushi Adhikari for Verification")}
+              </Button>
             </SectionCard>
           )}
           {!result && !loading && (
@@ -445,6 +433,30 @@ export function DiagnosePage() {
           </Card>
         </div>
       </div>
+    </>
+  );
+}
+
+/**
+ * Standalone Diagnose Crop page (kept for backward compatibility — the
+ * /app/farmer/diagnose route now redirects to the combined Crop Help page).
+ */
+export function DiagnosePage() {
+  const navigate = useNavigate();
+  return (
+    <>
+      <PageHeader
+        title={t("Crop Problem Identification")}
+        subtitle={t(
+          "This preliminary check helps describe your problem. The final recommendation always comes from a Krushi Adhikari.",
+        )}
+        breadcrumb={["Dashboard", "Diagnose Crop"]}
+      />
+      <DiagnoseForm
+        onAskExpert={() =>
+          navigate({ to: "/app/$", params: { _splat: "farmer/crop-help" }, search: { tab: "ask" } })
+        }
+      />
     </>
   );
 }
