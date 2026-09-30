@@ -41,12 +41,12 @@ function answer(q: string): Msg {
   if (s.includes("ask") || s.includes("question"))
     return {
       from: "bot",
-      text: "Open 'Ask Question' from the sidebar, choose your crop and stage, describe the problem, attach photos or a voice note, and press Submit Question.",
+      text: "Open 'Crop Help' from the sidebar and select the 'Ask an Expert' tab, choose your crop, describe the problem and press Submit Question.",
     };
   if (s.includes("upload") || s.includes("image") || s.includes("photo"))
     return {
       from: "bot",
-      text: "On the Ask Question or Diagnose Crop page, use the 'Upload Crop Images' box. You can drag and drop or tap to select up to 4 clear close-up photos.",
+      text: "On the Crop Help page, open the 'Ask an Expert' or 'Diagnose Crop' tab and use the 'Upload Crop Images' box. You can drag and drop or tap to select up to 4 clear close-up photos.",
     };
   if (s.includes("scheme"))
     return {
@@ -133,7 +133,8 @@ export function Chatbot() {
                     {m.cta && (
                       <Link
                         to="/app/$"
-                        params={{ _splat: "farmer/ask" }}
+                        params={{ _splat: "farmer/crop-help" }}
+                        search={{ tab: "ask" }}
                         onClick={() => setOpen(false)}
                       >
                         <Button size="sm" className="mt-2 w-full gap-1.5">
