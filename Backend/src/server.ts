@@ -1,6 +1,7 @@
 import cors from "cors";
 import dotenv from "dotenv";
 import express, { type Request, type Response } from "express";
+import path from "node:path";
 import { prisma } from "./lib/prisma.js";
 import authRoutes from "./routes/authRoutes.js";
 import profileRoutes from "./routes/profileRoutes.js";
@@ -9,6 +10,7 @@ import orderRoutes from "./routes/orderRoutes.js";
 import sellerOrderRoutes from "./routes/sellerOrderRoutes.js";
 import queryRoutes from "./routes/queryRoutes.js";
 import officerQueryRoutes from "./routes/officerQueryRoutes.js";
+import officerVerificationRoutes from "./routes/officerVerificationRoutes.js";
 import adminRoutes from "./routes/adminRoutes.js";
 
 dotenv.config();
@@ -30,8 +32,15 @@ app.use("/api/products", productRoutes);
 app.use("/api/orders", orderRoutes);
 app.use("/api/seller/orders", sellerOrderRoutes);
 app.use("/api/queries", queryRoutes);
+// IMPORTANT: verification router FIRST. Both officer routers share the
+// /api/officer prefix, and Express matches routers in mount order. The query
+// router's middleware must never swallow /verification or /certificates for
+// PENDING officers.
+app.use("/api/officer", officerVerificationRoutes);
 app.use("/api/officer", officerQueryRoutes);
 app.use("/api/admin", adminRoutes);
+// Serve officer certificate files (generated filenames only, no FS paths).
+app.use("/uploads", express.static(path.resolve(process.cwd(), "uploads")));
 
 app.get("/api/health", (_req: Request, res: Response) => {
   res.json({

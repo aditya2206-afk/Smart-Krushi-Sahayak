@@ -75,6 +75,7 @@ export const NAV: Record<Role, NavItem[]> = {
   ],
   officer: [
     { label: "Dashboard", path: "officer/dashboard", icon: LayoutDashboard },
+    { label: "Verification Status", path: "officer/verification-status", icon: ShieldCheck },
     { label: "Farmer Queries", path: "officer/queries", icon: ClipboardList },
     { label: "Pending Queries", path: "officer/pending", icon: CalendarCheck },
     { label: "My Assigned Queries", path: "officer/assigned", icon: ListChecks },

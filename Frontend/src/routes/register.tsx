@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { LanguageSelector, Logo } from "@/components/skl/common";
+import { OfficerRegisterForm } from "@/components/skl/OfficerRegisterShell";
 import { friendlyAuthError, registerRequest, type BackendRole } from "@/lib/skl/auth";
 import { t } from "@/lib/skl/i18n";
 
@@ -129,7 +130,7 @@ function RegisterPage() {
             </button>
             {kind === "farmer" && <AuthRegisterForm role="FARMER" title="Farmer Registration" onDone={setDone} />}
             {kind === "seller" && <AuthRegisterForm role="SELLER" title="Seller Registration" onDone={setDone} />}
-            {kind === "officer" && <AuthRegisterForm role="OFFICER" title="Krushi Adhikari Registration" onDone={setDone} />}
+            {kind === "officer" && <OfficerRegisterForm onDone={setDone} />}
             {kind === "buyer" && <AuthRegisterForm role="BUYER" title="Buyer Registration" onDone={setDone} />}
           </>
         )}

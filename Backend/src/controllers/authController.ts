@@ -31,6 +31,15 @@ function handleError(res: Response, error: unknown): void {
 
 export async function register(req: Request, res: Response): Promise<void> {
   try {
+    // Officers must use POST /api/auth/register-officer with documents.
+    const role = typeof req.body?.role === "string" ? req.body.role.trim().toUpperCase() : "";
+    if (role === "OFFICER") {
+      res.status(400).json({
+        success: false,
+        message: "Officers must register via Krushi Adhikari registration with verification documents.",
+      });
+      return;
+    }
     const parsed = registerSchema.safeParse(req.body);
     if (!parsed.success) {
       res.status(400).json({
@@ -67,9 +76,17 @@ export async function login(req: Request, res: Response): Promise<void> {
 
     res.status(200).json({
       success: true,
-      message: "Login successful",
+      message: result.requiresVerification
+        ? (result.verificationMessage ?? "Your Krushi Adhikari account is awaiting admin verification.")
+        : "Login successful",
       token: result.token,
       user: result.user,
+      ...(result.requiresVerification
+        ? {
+            requiresVerification: true,
+            verificationStatus: result.verificationStatus,
+          }
+        : {}),
     });
   } catch (error: unknown) {
     handleError(res, error);
