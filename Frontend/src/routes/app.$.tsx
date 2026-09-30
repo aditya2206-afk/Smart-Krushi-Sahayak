@@ -29,7 +29,10 @@ import {
   OfficerReportsPage,
 } from "@/pages/officer";
 import { OfficerCertificationsPage } from "@/pages/officer/Certifications";
+import { OfficerVerificationStatusPage } from "@/pages/officer/VerificationStatus";
 import { AdminOfficersPage, OfficerDetailPage } from "@/pages/admin/Officers";
+import { AdminOfficerVerificationPage } from "@/pages/admin/OfficerVerification";
+import { AdminOfficerDetailPage } from "@/pages/admin/OfficerVerificationDetail";
 import { AdminRealUsersPage } from "@/pages/admin/AdminRealUsers";
 import { AdminRealProductsPage } from "@/pages/admin/AdminRealProducts";
 import { AdminRealOrdersPage } from "@/pages/admin/AdminRealOrders";
@@ -135,6 +138,20 @@ function AppSplat() {
   if (seg !== role) {
     return <Navigate to="/app/$" params={{ _splat: `${role}/dashboard` }} />;
   }
+  // Backend is authoritative, but mirror the gate on the frontend so an
+  // unverified officer can ONLY open verification / documents / profile / settings.
+  if (role === "officer") {
+    const vs = authUser.verificationStatus;
+    const locked = vs !== undefined && vs !== "VERIFIED";
+    const allowedWhileLocked =
+      page === "verification-status" ||
+      page === "certifications" ||
+      page === "profile" ||
+      page === "settings";
+    if (locked && !allowedWhileLocked) {
+      return <Navigate to="/app/$" params={{ _splat: "officer/verification-status" }} />;
+    }
+  }
   const activeRole = role as Role;
 
   return <AppShell>{renderPage(activeRole, page, sub)}</AppShell>;
@@ -217,6 +234,8 @@ function renderPage(role: Role, page: string, sub?: string) {
 
   if (role === "officer") {
     switch (page) {
+      case "verification-status":
+        return <OfficerVerificationStatusPage />;
       case "certifications":
         return <OfficerCertificationsPage />;
       case "queries":
@@ -248,7 +267,11 @@ function renderPage(role: Role, page: string, sub?: string) {
     case "sellers":
       return <AdminRealUsersPage presetRole="SELLER" />;
     case "officers":
-      return sub ? <OfficerDetailPage officerId={sub} /> : <AdminOfficersPage />;
+      // Real backend-backed verification review. Legacy mock prototype
+      // (Officers.tsx) is kept for reference but no longer routed.
+      void AdminOfficersPage;
+      void OfficerDetailPage;
+      return sub ? <AdminOfficerDetailPage officerId={sub} /> : <AdminOfficerVerificationPage />;
     case "buyers":
       return <AdminRealUsersPage presetRole="BUYER" />;
     case "approvals":

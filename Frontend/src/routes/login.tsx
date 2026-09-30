@@ -62,6 +62,16 @@ function LoginPage() {
       // Authoritative backend login. No mock users, no role-based bypass.
       const result = await loginRequest(email, pw);
       setSession(result.token, result.user);
+      // Unverified officers go ONLY to the verification-status page.
+      const needsVerification =
+        result.user.role === "OFFICER" &&
+        (result.requiresVerification ||
+          (result.user.verificationStatus && result.user.verificationStatus !== "VERIFIED"));
+      if (needsVerification) {
+        toast.info(result.message ?? "Your Krushi Adhikari account is awaiting admin verification.");
+        navigate({ to: "/app/$", params: { _splat: "officer/verification-status" } });
+        return;
+      }
       toast.success("Login successful");
       navigate({
         to: "/app/$",

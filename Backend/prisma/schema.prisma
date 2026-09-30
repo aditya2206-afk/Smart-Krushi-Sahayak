@@ -60,6 +60,28 @@ enum OrderStatus {
   CANCELLED
 }
 
+enum OfficerVerificationStatus {
+  PENDING
+  VERIFIED
+  REJECTED
+  REUPLOAD_REQUIRED
+}
+
+enum OfficerDocumentType {
+  DEGREE_CERTIFICATE
+  APPOINTMENT_CERTIFICATE
+  OFFICER_ID
+  EXPERIENCE_CERTIFICATE
+  OTHER
+}
+
+enum OfficerDocumentStatus {
+  PENDING
+  VERIFIED
+  REJECTED
+  REUPLOAD_REQUIRED
+}
+
 model User {
   id        Int      @id @default(autoincrement())
   name      String
@@ -137,8 +159,14 @@ model OfficerProfile {
   officerId       String?
   district        String?
   state           String?
+  // Professional verification (separate from User.isActive which only gates login).
+  verificationStatus OfficerVerificationStatus @default(PENDING)
+  verificationNote   String?
+  verifiedAt         DateTime?
+  verifiedById       Int?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
+  certificates  OfficerCertificate[]
 }
 
 model FarmerQuery {
@@ -244,5 +272,27 @@ model OrderItem {
   @@index([orderId])
   @@index([productId])
   @@index([sellerId])
+}
+
+// Krushi Adhikari verification document. Only file metadata/URL is stored,
+// never raw file binaries. Local dev files live under uploads/officer-certificates.
+model OfficerCertificate {
+  id               Int                   @id @default(autoincrement())
+  officerProfileId Int
+  officerProfile   OfficerProfile        @relation(fields: [officerProfileId], references: [id], onDelete: Cascade)
+  documentType     OfficerDocumentType
+  fileUrl          String
+  originalFileName String?
+  mimeType         String?
+  fileSize         Int?
+  status           OfficerDocumentStatus @default(PENDING)
+  adminNote        String?
+  uploadedAt       DateTime              @default(now())
+  reviewedAt       DateTime?
+  reviewedById     Int?
+
+  @@index([officerProfileId])
+  @@index([documentType])
+  @@index([status])
 }
 

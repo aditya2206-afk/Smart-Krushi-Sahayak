@@ -37,3 +37,7 @@ npm-debug.log*
 .idea/
 .DS_Store
 Thumbs.db
+
+# Runtime uploaded officer documents
+Backend/uploads/officer-certificates/*
+!Backend/uploads/officer-certificates/.gitkeep
