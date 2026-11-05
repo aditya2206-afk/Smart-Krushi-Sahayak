@@ -9,7 +9,6 @@ import {
   HelpCircle,
   Landmark,
   MessageSquare,
-  Scan,
   ShoppingBag,
   Sprout,
   TrendingUp,
@@ -25,12 +24,11 @@ import { t } from "@/lib/skl/i18n";
 
 const QUICK = [
   {
-    path: "farmer/ask",
+    path: "farmer/crop-help",
     icon: HelpCircle,
-    title: "Ask Question",
-    desc: "Send your farming problem to experts.",
+    title: "Crop Help",
+    desc: "Ask an expert or run a preliminary crop check.",
   },
-  { path: "farmer/diagnose", icon: Scan, title: "Diagnose Disease", desc: "Upload a crop image." },
   {
     path: "farmer/pesticides",
     icon: Bug,
@@ -98,18 +96,18 @@ export function FarmerDashboard() {
             )}
           </p>
           <div className="mt-5 flex flex-wrap gap-3">
-            <Link to="/app/$" params={{ _splat: "farmer/ask" }}>
+            <Link to="/app/$" params={{ _splat: "farmer/crop-help" }} search={{ tab: "ask" }}>
               <Button size="lg" className="rounded-full">
-                {t("Ask a Question")}
+                {t("Ask an Expert")}
               </Button>
             </Link>
-            <Link to="/app/$" params={{ _splat: "farmer/diagnose" }}>
+            <Link to="/app/$" params={{ _splat: "farmer/crop-help" }} search={{ tab: "diagnose" }}>
               <Button
                 size="lg"
                 variant="outline"
                 className="rounded-full border-white/50 bg-white/10 text-white hover:bg-white/20"
               >
-                {t("Diagnose Disease")}
+                {t("Diagnose Crop")}
               </Button>
             </Link>
           </div>

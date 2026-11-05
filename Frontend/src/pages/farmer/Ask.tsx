@@ -1,6 +1,9 @@
 import { useRef, useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { CheckCircle2, Info, Upload, X, ImagePlus } from "lucide-react";
+import { useState } from "react";
+import { useNavigate } from "@tanstack/react-router";
+import { CheckCircle2, Info, Scan } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -97,6 +100,11 @@ export function ImageUploader({
     }
   };
   const pickFile = () => {
+  images: string[];
+  setImages: (i: string[]) => void;
+}) {
+  const [preview, setPreview] = useState<string | null>(null);
+  const add = () => {
     if (images.length >= 4) {
       toast.error("You can upload up to 4 images");
       return;
@@ -186,7 +194,8 @@ export function ImageUploader({
   );
 }
 
-export function AskQuestionPage() {
+/** Ask an Expert form — reused by the combined Crop Help page and the standalone page. */
+export function AskQuestionForm() {
   const navigate = useNavigate();
   const [crop, setCrop] = useState("Soybean");
   const [category, setCategory] = useState("Crop Disease");
@@ -233,11 +242,6 @@ export function AskQuestionPage() {
 
   return (
     <>
-      <PageHeader
-        title={t("Ask a Question")}
-        subtitle={t("Describe your crop problem \u2014 a verified Krushi Adhikari will review it.")}
-        breadcrumb={["Dashboard", "Ask Question"]}
-      />
       <div className="grid gap-4 lg:grid-cols-3">
         <div className="space-y-4 lg:col-span-2">
           <SectionCard title={t("Describe Your Problem")}>
@@ -423,6 +427,31 @@ export function AskQuestionPage() {
   );
 }
 
+/**
+ * Standalone Ask Question page (kept for backward compatibility — the
+ * /app/farmer/ask route now redirects to the combined Crop Help page).
+ */
+export function AskQuestionPage() {
+  return (
+    <>
+      <PageHeader
+        title={t("Ask a Question")}
+        subtitle={t("Describe your crop problem \u2014 a verified Krushi Adhikari will review it.")}
+        breadcrumb={["Dashboard", "Ask Question"]}
+      />
+      <AskQuestionForm />
+    </>
+  );
+}
+
+/** Diagnose Crop form — reused by the combined Crop Help page and the standalone page. */
+export function DiagnoseForm({ onAskExpert }: { onAskExpert: () => void }) {
+  const [images, setImages] = useState<string[]>([]);
+  const [crop, setCrop] = useState("Soybean");
+  const [stage, setStage] = useState("Vegetative");
+  const [symptoms, setSymptoms] = useState("");
+  const [result, setResult] = useState(false);
+  const [loading, setLoading] = useState(false);
 
 
 
@@ -431,3 +460,137 @@ export function AskQuestionPage() {
 
 
 
+  return (
+    <>
+      <div className="grid gap-4 lg:grid-cols-2">
+        <SectionCard title={t("Upload Crop Image")}>
+          <ImageUploader images={images} setImages={setImages} />
+          <div className="mt-4 grid gap-4 sm:grid-cols-2">
+            <div>
+              <Label>{t("Crop")}</Label>
+              <Select value={crop} onValueChange={setCrop}>
+                <SelectTrigger className="mt-1.5 w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {CROPS.map((c) => (
+                    <SelectItem key={c} value={c}>
+                      {c}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>{t("Crop Stage")}</Label>
+              <Select value={stage} onValueChange={setStage}>
+                <SelectTrigger className="mt-1.5 w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {STAGES.map((s) => (
+                    <SelectItem key={s} value={s}>
+                      {s}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="sm:col-span-2">
+              <Label>{t("Symptoms")}</Label>
+              <Textarea
+                value={symptoms}
+                onChange={(e) => setSymptoms(e.target.value)}
+                maxLength={500}
+                rows={3}
+                className="mt-1.5"
+                placeholder={t("Yellowing between veins, curling of new leaves, brown spots...")}
+              />
+            </div>
+          </div>
+          <Button className="mt-4 w-full gap-2" onClick={run} disabled={loading}>
+            <Scan className="size-4" /> {loading ? "Analysing image..." : "Run Preliminary Check"}
+          </Button>
+        </SectionCard>
+
+        <div className="space-y-4">
+          {loading && (
+            <Card className="gap-0 p-5">
+              <div className="space-y-3">
+                <div className="h-4 w-1/3 animate-pulse rounded bg-muted" />
+                <div className="h-20 animate-pulse rounded bg-muted" />
+                <div className="h-4 w-2/3 animate-pulse rounded bg-muted" />
+              </div>
+            </Card>
+          )}
+          {result && !loading && (
+            <SectionCard
+              title={t("Preliminary Visual Assessment")}
+              desc={t("Not a confirmed diagnosis")}
+            >
+              <Badge
+                variant="outline"
+                className="rounded-full border-warning/40 bg-warning/10 text-warning"
+              >
+                {t("Preliminary visual assessment")}
+              </Badge>
+              <h3 className="mt-3 text-lg font-semibold">
+                {t("Possible Issue: Leaf Spot / Nutrient Deficiency")}
+              </h3>
+              <p className="mt-2 text-sm text-muted-foreground">
+                Image patterns on {crop} at {stage} stage resemble early leaf spot with possible
+                nitrogen deficiency. Field verification is required before applying any input.
+              </p>
+              <div className="mt-4 space-y-2 text-sm">
+                <p>• Check lower leaves for uniform yellowing (nutrient) vs spots (fungal).</p>
+                <p>{t("\u2022 Inspect soil moisture and drainage in the affected patch.")}</p>
+                <p>{t("\u2022 Do not spray before officer verification.")}</p>
+              </div>
+              <Button className="mt-4 w-full" onClick={onAskExpert}>
+                {t("Send to Krushi Adhikari for Verification")}
+              </Button>
+            </SectionCard>
+          )}
+          {!result && !loading && (
+            <Card className="gap-0 border-dashed p-8 text-center">
+              <Scan className="mx-auto size-8 text-primary" />
+              <p className="mt-3 font-medium">{t("No assessment yet")}</p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {t("Upload a photo and run the preliminary check.")}
+              </p>
+            </Card>
+          )}
+          <Card className="gap-0 border-primary/30 bg-pale/60 p-4 text-sm">
+            {t(
+              "\ud83d\udee1 Automated output is supportive only. Official diagnosis and treatment is provided by a\n            verified Krushi Adhikari after reviewing your query.",
+            )}
+          </Card>
+        </div>
+      </div>
+    </>
+  );
+}
+
+/**
+ * Standalone Diagnose Crop page (kept for backward compatibility — the
+ * /app/farmer/diagnose route now redirects to the combined Crop Help page).
+ */
+export function DiagnosePage() {
+  const navigate = useNavigate();
+  return (
+    <>
+      <PageHeader
+        title={t("Crop Problem Identification")}
+        subtitle={t(
+          "This preliminary check helps describe your problem. The final recommendation always comes from a Krushi Adhikari.",
+        )}
+        breadcrumb={["Dashboard", "Diagnose Crop"]}
+      />
+      <DiagnoseForm
+        onAskExpert={() =>
+          navigate({ to: "/app/$", params: { _splat: "farmer/crop-help" }, search: { tab: "ask" } })
+        }
+      />
+    </>
+  );
+}

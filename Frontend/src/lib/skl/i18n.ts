@@ -3198,6 +3198,36 @@ const certHi: Dict = {
 Object.assign(mr, certMr);
 Object.assign(hi, certHi);
 
+/* --- Crop Help (combined Ask an Expert + Diagnose Crop farmer page) --- */
+const cropHelpMr: Dict = {
+  "Crop Help": "पीक मदत",
+  "Get help with your crop through expert consultation or a preliminary image-based check.":
+    "तज्ज्ञ सल्ला किंवा प्रतिमेवर आधारित प्राथमिक तपासणीद्वारे तुमच्या पिकासाठी मदत घ्या.",
+  "Ask an Expert": "तज्ज्ञांना विचारा",
+  "Ask an expert or run a preliminary crop check.":
+    "तज्ज्ञांना विचारा किंवा पिकाची प्राथमिक तपासणी करा.",
+  "Open 'Crop Help' from the sidebar and select the 'Ask an Expert' tab, choose your crop, describe the problem and press Submit Question.":
+    "बाजूच्या मेनूतून 'पीक मदत' उघडा व 'तज्ज्ञांना विचारा' टॅब निवडा, पीक निवडा, समस्या सांगा आणि प्रश्न पाठवा दाबा.",
+  "On the Crop Help page, open the 'Ask an Expert' or 'Diagnose Crop' tab and use the 'Upload Crop Images' box. You can drag and drop or tap to select up to 4 clear close-up photos.":
+    "पीक मदत पृष्ठावर 'तज्ज्ञांना विचारा' किंवा 'पीक तपासणी' टॅब उघडा आणि 'पीक प्रतिमा अपलोड' चौकट वापरा. जास्तीत जास्त ४ स्पष्ट जवळून काढलेली छायाचित्रे ओढा किंवा निवडा.",
+};
+
+const cropHelpHi: Dict = {
+  "Crop Help": "फसल सहायता",
+  "Get help with your crop through expert consultation or a preliminary image-based check.":
+    "विशेषज्ञ परामर्श या छवि-आधारित प्रारंभिक जाँच के माध्यम से अपनी फसल के लिए सहायता प्राप्त करें।",
+  "Ask an Expert": "विशेषज्ञ से पूछें",
+  "Ask an expert or run a preliminary crop check.":
+    "विशेषज्ञ से पूछें या फसल की प्रारंभिक जाँच करें।",
+  "Open 'Crop Help' from the sidebar and select the 'Ask an Expert' tab, choose your crop, describe the problem and press Submit Question.":
+    "साइडबार से 'फसल सहायता' खोलें और 'विशेषज्ञ से पूछें' टैब चुनें, फसल चुनें, समस्या बताएँ और प्रश्न भेजें दबाएँ।",
+  "On the Crop Help page, open the 'Ask an Expert' or 'Diagnose Crop' tab and use the 'Upload Crop Images' box. You can drag and drop or tap to select up to 4 clear close-up photos.":
+    "फसल सहायता पृष्ठ पर 'विशेषज्ञ से पूछें' या 'फसल जाँच' टैब खोलें और 'फसल तस्वीरें अपलोड' बॉक्स उपयोग करें। अधिकतम 4 स्पष्ट नज़दीकी तस्वीरें खींचें या चुनें।",
+};
+
+Object.assign(mr, cropHelpMr);
+Object.assign(hi, cropHelpHi);
+
 export const TRANSLATIONS: Record<Lang, Dict> = { en, mr, hi };
 
 /** Collapse whitespace so multi-line JSX text matches the dictionary key. */

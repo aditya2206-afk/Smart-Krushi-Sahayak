@@ -44,7 +44,7 @@ export interface NavItem {
 export const NAV: Record<Role, NavItem[]> = {
   farmer: [
     { label: "Dashboard", path: "farmer/dashboard", icon: LayoutDashboard },
-    { label: "Ask Question", path: "farmer/ask", icon: HelpCircle },
+    { label: "Crop Help", path: "farmer/crop-help", icon: HelpCircle },
     { label: "My Questions", path: "farmer/questions", icon: ClipboardList },
     { label: "Chat with Expert", path: "farmer/chat", icon: MessageSquare },
     { label: "My Crops", path: "farmer/crops", icon: Sprout },
@@ -136,7 +136,7 @@ export const ROLE_LABEL: Record<Role, string> = {
 export const MOBILE_NAV: Record<Role, NavItem[]> = {
   farmer: [
     { label: "Home", path: "farmer/dashboard", icon: LayoutDashboard },
-    { label: "Ask", path: "farmer/ask", icon: HelpCircle },
+    { label: "Crop Help", path: "farmer/crop-help", icon: HelpCircle },
     { label: "Queries", path: "farmer/questions", icon: ClipboardList },
     { label: "Mandi", path: "farmer/mandi-prices", icon: TrendingUp },
     { label: "Alerts", path: "farmer/notifications", icon: Bell },
