@@ -12,6 +12,7 @@ import queryRoutes from "./routes/queryRoutes.js";
 import officerQueryRoutes from "./routes/officerQueryRoutes.js";
 import officerVerificationRoutes from "./routes/officerVerificationRoutes.js";
 import adminRoutes from "./routes/adminRoutes.js";
+import mediaRoutes from "./routes/mediaRoutes.js";
 
 dotenv.config();
 
@@ -39,6 +40,7 @@ app.use("/api/queries", queryRoutes);
 app.use("/api/officer", officerVerificationRoutes);
 app.use("/api/officer", officerQueryRoutes);
 app.use("/api/admin", adminRoutes);
+app.use("/api/media", mediaRoutes);
 // Serve officer certificate files (generated filenames only, no FS paths).
 app.use("/uploads", express.static(path.resolve(process.cwd(), "uploads")));
 

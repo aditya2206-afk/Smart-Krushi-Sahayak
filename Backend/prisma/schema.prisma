@@ -82,6 +82,11 @@ enum OfficerDocumentStatus {
   REUPLOAD_REQUIRED
 }
 
+enum MediaType {
+  IMAGE
+  AUDIO
+}
+
 model User {
   id        Int      @id @default(autoincrement())
   name      String
@@ -103,6 +108,7 @@ model User {
   produceListings ProduceListing[] @relation("SellerListings")
   buyerOrders     Order[]          @relation("BuyerOrders")
   sellerOrderItems OrderItem[]     @relation("SellerOrderItems")
+  mediaAssets     MediaAsset[]
 }
 
 model FarmerProfile {
@@ -184,6 +190,7 @@ model FarmerQuery {
   answeredAt  DateTime?
 
   recommendation Recommendation?
+  mediaAssets    MediaAsset[] @relation("QueryMedia")
 
   @@index([farmerId])
   @@index([status])
@@ -294,5 +301,31 @@ model OfficerCertificate {
   @@index([officerProfileId])
   @@index([documentType])
   @@index([status])
+}
+
+// Media assets stored in Cloudinary. Only metadata and the Cloudinary URL are
+// kept in PostgreSQL; raw binaries live in Cloudinary.
+model MediaAsset {
+  id            Int      @id @default(autoincrement())
+  userId        Int
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  farmerQueryId Int?
+  farmerQuery   FarmerQuery? @relation("QueryMedia", fields: [farmerQueryId], references: [id], onDelete: Cascade)
+  mediaType     MediaType
+  purpose       String
+  secureUrl     String
+  publicId      String
+  resourceType  String
+  format        String
+  mimeType      String
+  originalName  String
+  bytes         Int
+  createdAt     DateTime @default(now())
+
+  @@index([userId])
+  @@index([mediaType])
+  @@index([purpose])
+  @@index([createdAt])
+  @@index([farmerQueryId])
 }
 

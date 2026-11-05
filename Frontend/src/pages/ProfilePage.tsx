@@ -6,7 +6,13 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Upload, ImagePlus, X } from "lucide-react";
 import { toast } from "sonner";
+import {
+  uploadMediaFile,
+  acceptForMediaType,
+  maxSizeForMediaType,
+} from "@/lib/skl/media";
 import { PageHeader, SectionCard, StatusBadge } from "@/components/skl/common";
 import { useStore } from "@/lib/skl/store";
 import { certProgress, officerVerification } from "@/lib/skl/data";
@@ -297,6 +303,53 @@ interface ProfileBodyProps {
 }
 
 function ProfileBody(props: ProfileBodyProps) {
+  const [profileImageUrl, setProfileImageUrl] = useState<string | null>(null);
+  const [imageUploading, setImageUploading] = useState<File | null>(null);
+  const [imageProgress, setImageProgress] = useState(0);
+  const profileImageInput = useRef<HTMLInputElement>(null);
+
+  const handleProfileImage = async (selected: FileList | null) => {
+    if (!selected || selected.length === 0) return;
+    const file = selected[0];
+    if (!file) return;
+    const maxBytes = maxSizeForMediaType("IMAGE");
+    if (file.size > maxBytes) {
+      toast.error("Image too large. Maximum size is 5MB.");
+      return;
+    }
+    const mime = file.type.toLowerCase();
+    if (!mime.startsWith("image/")) {
+      toast.error("Only image files (JPG, JPEG, PNG, WEBP) are allowed.");
+      return;
+    }
+    setImageUploading(file);
+    setImageProgress(0);
+    try {
+      const asset = await uploadMediaFile({
+        file,
+        mediaType: "IMAGE",
+        purpose: "profiles",
+        onProgress: (p) => setImageProgress(p),
+      });
+      setProfileImageUrl(asset.secureUrl);
+      toast.success("Profile picture uploaded");
+    } catch (err) {
+      toast.error(
+        err instanceof Error
+          ? err.message
+          : "Failed to upload profile picture. Please try again.",
+      );
+    } finally {
+      setImageUploading(null);
+      setImageProgress(0);
+      if (profileImageInput.current) profileImageInput.current.value = "";
+    }
+  };
+
+  const pickProfileImage = () => {
+    if (profileImageInput.current) profileImageInput.current.click();
+  };
+
   return (
     <div>
       {!props.completed && !props.edit ? (
@@ -308,11 +361,44 @@ function ProfileBody(props: ProfileBodyProps) {
         </div>
       ) : null}
       <div className="grid gap-4 lg:grid-cols-3">
-        <Card className="gap-0 p-6 text-center">
-          <div className="mx-auto grid size-24 place-items-center rounded-full bg-pale text-2xl font-bold text-forest">SK</div>
+        <Card className="gap-0 p-6 text-center relative">
+          <input
+            ref={profileImageInput}
+            type="file"
+            accept={acceptForMediaType("IMAGE")}
+            className="hidden"
+            onChange={(e) => handleProfileImage(e.target.files)}
+          />
+          <div
+            onClick={pickProfileImage}
+            className="relative cursor-pointer inline-block"
+          >
+            {profileImageUrl ? (
+              <img
+                src={profileImageUrl}
+                alt="Profile"
+                className="mx-auto size-24 rounded-full object-cover border border-primary/40"
+              />
+            ) : (
+              <div className="mx-auto grid size-24 place-items-center rounded-full bg-pale text-2xl font-bold text-forest">SK</div>
+            )}
+            {imageUploading && (
+              <div className="absolute inset-0 flex items-center justify-center rounded-full bg-black/40">
+                <div className="bg-muted/20 rounded-full h-2 w-16">
+                  <div
+                    className="bg-primary h-full rounded-full transition-all"
+                    style={{ width: `${imageProgress}%` }}
+                  />
+                </div>
+              </div>
+            )}
+          </div>
           <h2 className="mt-4 text-lg font-semibold">{props.displayName}</h2>
           <p className="text-sm text-muted-foreground">{props.displayEmail}</p>
           <StatusBadge status="Verified" />
+          <p className="mt-2 text-xs text-muted-foreground">
+            {profileImageUrl ? t("Profile picture") : t("Tap to upload a profile picture")}
+          </p>
         </Card>
         <div className="grid gap-4 lg:col-span-2">
           <SectionCard title="Profile Information" desc="Role-specific fields only.">

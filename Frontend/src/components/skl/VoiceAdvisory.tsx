@@ -7,6 +7,11 @@ import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { t } from "@/lib/skl/i18n";
+import {
+  uploadMediaFile,
+  mediaTypeFromMime,
+  maxSizeForMediaType,
+} from "@/lib/skl/media";
 
 export interface VoiceAdvisory {
   url: string;
@@ -34,9 +39,11 @@ function Waveform({ levels }: { levels: number[] }) {
 export function VoiceAdvisoryRecorder({
   value,
   onChange,
+  onAssetAdded,
 }: {
   value: VoiceAdvisory | null;
   onChange: (v: VoiceAdvisory | null) => void;
+  onAssetAdded?: (assetId: number) => void;
 }) {
   const [enabled, setEnabled] = useState(false);
   const [recording, setRecording] = useState(false);
@@ -100,17 +107,38 @@ export function VoiceAdvisoryRecorder({
       mr.ondataavailable = (e) => {
         if (e.data.size > 0) chunks.current.push(e.data);
       };
-      mr.onstop = () => {
+      mr.onstop = async () => {
         const blob = new Blob(chunks.current, { type: mr.mimeType || "audio/webm" });
-        const reader = new FileReader();
-        reader.onloadend = () => {
+        const maxBytes = maxSizeForMediaType("AUDIO");
+        if (blob.size > maxBytes) {
+          toast.error("Recording too large. Maximum size is 15MB.");
+          cleanup();
+          return;
+        }
+        const file = new File([blob], `voice-query-${Date.now()}.webm`, {
+          type: blob.type || "audio/webm",
+        });
+        try {
+          const asset = await uploadMediaFile({
+            file,
+            mediaType: "AUDIO",
+            purpose: "voice-queries",
+          });
           onChange({
-            url: String(reader.result),
+            url: asset.secureUrl,
             duration: fmt(Math.max(1, Math.round((Date.now() - startedAt.current) / 1000))),
           });
+          onAssetAdded?.(asset.id);
           toast.success(t("Voice advisory recorded"));
-        };
-        reader.readAsDataURL(blob);
+        } catch (err) {
+          toast.error(
+            err instanceof Error
+              ? err.message
+              : "Failed to upload voice recording. Please try again.",
+          );
+        } finally {
+          cleanup();
+        }
       };
       mr.start();
     } catch {

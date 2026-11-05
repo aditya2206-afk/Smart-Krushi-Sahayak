@@ -57,6 +57,7 @@ export interface CreateProductPayload {
   unit: BackendProductUnit;
   price: number;
   location: string;
+  imageUrl?: string | undefined;
 }
 
 export type UpdateProductPayload = Partial<

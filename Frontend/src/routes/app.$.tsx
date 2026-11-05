@@ -5,6 +5,7 @@ import { useStore } from "@/lib/skl/store";
 import type { Role } from "@/lib/skl/data";
 
 import { FarmerDashboard } from "@/pages/farmer/Dashboard";
+import { AskQuestionPage } from "@/pages/farmer/Ask";
 import { CropHelpPage, type CropHelpTab } from "@/pages/farmer/CropHelp";
 import { MyQuestionsPage } from "@/pages/farmer/Questions";
 import { MyCropsPage } from "@/pages/farmer/Crops";
@@ -200,6 +201,9 @@ function renderPage(role: Role, page: string, sub?: string, cropHelpTab: CropHel
         return <MyQuestionsPage />;
       case "chat":
         return <ChatPage as="farmer" />;
+      case "diagnose":
+        // Legacy Diagnose Crop URL — redirect to the unified Ask Question page.
+        return <AskQuestionPage />;
       case "crops":
         return <MyCropsPage />;
       case "mandi-prices":
