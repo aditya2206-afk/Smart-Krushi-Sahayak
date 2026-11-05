@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "@tanstack/react-router";
-import { ArrowLeft, BadgeCheck, ClipboardList, FileText } from "lucide-react";
+import { ArrowLeft, BadgeCheck, ClipboardList, FileText, Image, Mic } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -192,6 +192,35 @@ export function QueryDetail({ query, onBack }: { query: BackendQuery; onBack: ()
                 <dd className="mt-1 text-sm">{t(query.description)}</dd>
               </div>
             </dl>
+            {(query.mediaAssets ?? []).length > 0 && (
+              <div className="mt-4">
+                <h4 className="text-xs font-semibold mb-2">Attached Media</h4>
+                <div className="grid gap-3 sm:grid-cols-3">
+                  {(query.mediaAssets ?? []).filter((m) => m.mediaType === "IMAGE").map((img, i) => (
+                    <div key={i} className="relative group rounded-xl border overflow-hidden">
+                      <a href={img.secureUrl} target="_blank" rel="noopener noreferrer">
+                        <img
+                          src={img.secureUrl}
+                          alt={`Crop image ${i + 1}`}
+                          className="w-full h-32 object-cover hover:opacity-90 transition-opacity"
+                        />
+                      </a>
+                      <p className="text-[10px] text-muted-foreground pt-1 px-1 truncate">{img.originalName}</p>
+                    </div>
+                  ))}
+                  {(query.mediaAssets ?? []).filter((m) => m.mediaType === "AUDIO").map((aud, i) => (
+                    <div key={i} className="rounded-xl border p-3">
+                      <audio src={aud.secureUrl} controls className="w-full" />
+                      <p className="text-[10px] text-muted-foreground pt-1 truncate">{aud.originalName}</p>
+                      <p className="text-[10px] text-muted-foreground">{aud.format.toUpperCase()} \u2022 {(aud.bytes / 1024).toFixed(1)} KB</p>
+                    </div>
+                  ))}
+                </div>
+                {(query.mediaAssets ?? []).length === 0 && (
+                  <p className="text-xs text-muted-foreground italic">No media attachments.</p>
+                )}
+              </div>
+            )}
           </SectionCard>
 
           {rec ? (
@@ -270,3 +299,4 @@ export function PrescribedTreatmentPlan({ query }: { query: BackendQuery }) {
   void query;
   return null;
 }
+

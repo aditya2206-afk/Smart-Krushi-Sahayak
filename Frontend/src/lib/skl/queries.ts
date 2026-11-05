@@ -38,6 +38,21 @@ export interface BackendQuery {
   answeredAt: string | null;
   recommendation: BackendRecommendation | null;
   farmer?: BackendFarmerInfo;
+  mediaAssets?: BackendMediaAsset[];
+}
+
+export interface BackendMediaAsset {
+  id: number;
+  mediaType: "IMAGE" | "AUDIO";
+  purpose: string;
+  secureUrl: string;
+  publicId: string;
+  resourceType: string;
+  format: string;
+  mimeType: string;
+  originalName: string;
+  bytes: number;
+  createdAt: string;
 }
 
 function errorMessage(status: number, body: unknown, fallback: string): string {
@@ -64,6 +79,7 @@ export interface CreateQueryPayload {
   category: string;
   description: string;
   priority?: BackendQueryPriority;
+  mediaAssetIds?: number[];
 }
 
 

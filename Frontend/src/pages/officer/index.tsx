@@ -23,7 +23,9 @@ import {
   Clock,
   Download,
   Filter,
+  Image,
   ListChecks,
+  Mic,
   Search,
   Send,
   Star,
@@ -455,6 +457,20 @@ export function OfficerQueriesPage({
                     {x.farmer?.name ?? "Farmer"} • {x.cropName} • {x.category} •{" "}
                     {formatQueryDate(x.createdAt)}
                   </p>
+                  {(x.mediaAssets ?? []).length > 0 && (
+                    <div className="mt-2 flex gap-2 items-center">
+                      {(x.mediaAssets ?? []).filter((m) => m.mediaType === "IMAGE").length > 0 && (
+                        <span className="text-xs text-muted-foreground">
+                          <Image className="size-3.5 mr-1" /> {(x.mediaAssets ?? []).filter((m) => m.mediaType === "IMAGE").length} image(s)
+                        </span>
+                      )}
+                      {(x.mediaAssets ?? []).filter((m) => m.mediaType === "AUDIO").length > 0 && (
+                        <span className="text-xs text-muted-foreground">
+                          <Mic className="size-3.5 mr-1" /> {(x.mediaAssets ?? []).filter((m) => m.mediaType === "AUDIO").length} voice recording(s)
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </div>
                 <div className="flex flex-col gap-2">
                   {x.status === "PENDING" && (
@@ -577,8 +593,34 @@ function AnswerQuery({
             <p className="mt-3 text-sm">{t(query.description)}</p>
             {query.recommendation && (
               <p className="mt-3 rounded-xl bg-warning/10 p-3 text-xs text-muted-foreground">
-                {t("This query already has a recommendation. Submitting again is blocked by the server.")}
               </p>
+            )}
+                {t("This query already has a recommendation. Submitting again is blocked by the server.")}
+            {(query.mediaAssets ?? []).length > 0 && (
+              <div className="mt-4">
+                <h4 className="text-xs font-semibold mb-2">Attached Media</h4>
+                <div className="grid gap-3 sm:grid-cols-3">
+                  {(query.mediaAssets ?? []).filter((m) => m.mediaType === "IMAGE").map((img, i) => (
+                    <div key={i} className="relative group rounded-xl border overflow-hidden">
+                      <a href={img.secureUrl} target="_blank" rel="noopener noreferrer">
+                        <img
+                          src={img.secureUrl}
+                          alt={`Crop image ${i + 1}`}
+                          className="w-full h-32 object-cover hover:opacity-90 transition-opacity"
+                        />
+                      </a>
+                      <p className="text-[10px] text-muted-foreground pt-1 px-1 truncate">{img.originalName}</p>
+                    </div>
+                  ))}
+                  {(query.mediaAssets ?? []).filter((m) => m.mediaType === "AUDIO").map((aud, i) => (
+                    <div key={i} className="rounded-xl border p-3">
+                      <audio src={aud.secureUrl} controls className="w-full" />
+                      <p className="text-[10px] text-muted-foreground pt-1 truncate">{aud.originalName}</p>
+                      <p className="text-[10px] text-muted-foreground">{aud.format.toUpperCase()} \u2022 {(aud.bytes / 1024).toFixed(1)} KB</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
             )}
           </SectionCard>
           <SectionCard title={t("Similar Past Cases")}>
@@ -1053,3 +1095,4 @@ function FarmerDirectory() {
     </SectionCard>
   );
 }
+

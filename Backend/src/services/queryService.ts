@@ -38,37 +38,122 @@ const recommendationSelect = {
 const queryWithRelations = {
   recommendation: { select: recommendationSelect },
   farmer: { select: safeFarmerSelect },
+  mediaAssets: {
+    select: {
+      id: true,
+      mediaType: true,
+      purpose: true,
+      secureUrl: true,
+      publicId: true,
+      resourceType: true,
+      format: true,
+      mimeType: true,
+      originalName: true,
+      bytes: true,
+      createdAt: true,
+    },
+    orderBy: { createdAt: "asc" },
+  },
 } satisfies Prisma.FarmerQueryInclude;
 
 export type QueryWithRelations = Prisma.FarmerQueryGetPayload<{ include: typeof queryWithRelations }>;
 
 export async function createFarmerQuery(farmerId: number, input: CreateQueryInput) {
-  const query = await prisma.farmerQuery.create({
-    data: {
-      farmerId,
-      title: input.title.trim(),
-      cropName: input.cropName.trim(),
-      category: input.category.trim(),
-      description: input.description.trim(),
-      priority: (input.priority ?? "MEDIUM") as QueryPriority,
-    },
-    include: { recommendation: true },
+  const mediaAssetIds: number[] = input.mediaAssetIds ?? [];
+
+  // Validate that every submitted media asset exists, belongs to the
+  // authenticated farmer, and has an appropriate purpose for a query.
+  if (mediaAssetIds.length > 0) {
+    const assets = await prisma.mediaAsset.findMany({
+      where: { id: { in: mediaAssetIds }, userId: farmerId },
+      select: { id: true, mediaType: true, purpose: true },
+    });
+
+    if (assets.length !== mediaAssetIds.length) {
+      throw new AppError(
+        "One or more media assets were not found or do not belong to you.",
+        400,
+      );
+    }
+
+    const validPurposes = ["crop-images", "voice-queries"];
+    for (const asset of assets) {
+      if (!validPurposes.includes(asset.purpose)) {
+        throw new AppError(
+          `Media asset #${asset.id} has an invalid purpose for a query attachment.`,
+          400,
+        );
+      }
+    }
+  }
+
+  return prisma.$transaction(async (tx) => {
+    const query = await tx.farmerQuery.create({
+      data: {
+        farmerId,
+        title: input.title.trim(),
+        cropName: input.cropName.trim(),
+        category: input.category.trim(),
+        description: input.description.trim(),
+        priority: (input.priority ?? "MEDIUM") as QueryPriority,
+        mediaAssets: {
+          connect: mediaAssetIds.map((id) => ({ id })),
+        },
+      },
+      include: { recommendation: true, mediaAssets: true },
+    });
+    return query;
   });
-  return query;
 }
 
 export async function getMyQueries(farmerId: number) {
   return prisma.farmerQuery.findMany({
     where: { farmerId },
     orderBy: { createdAt: "desc" },
-    include: { recommendation: { select: recommendationSelect } },
+    include: {
+      recommendation: { select: recommendationSelect },
+      mediaAssets: {
+        select: {
+          id: true,
+          mediaType: true,
+          purpose: true,
+          secureUrl: true,
+          publicId: true,
+          resourceType: true,
+          format: true,
+          mimeType: true,
+          originalName: true,
+          bytes: true,
+          createdAt: true,
+        },
+        orderBy: { createdAt: "asc" },
+      },
+    },
   });
 }
 
 export async function getQueryByIdForFarmer(queryId: number, farmerId: number) {
   const query = await prisma.farmerQuery.findUnique({
     where: { id: queryId },
-    include: { recommendation: { select: recommendationSelect } },
+    include: {
+      recommendation: { select: recommendationSelect },
+      mediaAssets: {
+        select: {
+          id: true,
+          mediaType: true,
+          purpose: true,
+          secureUrl: true,
+          publicId: true,
+          resourceType: true,
+          format: true,
+          mimeType: true,
+          originalName: true,
+          bytes: true,
+          createdAt: true,
+        },
+        orderBy: { createdAt: "asc" },
+      },
+    },
   });
   if (!query) throw new AppError("Query not found", 404);
   if (query.farmerId !== farmerId) {

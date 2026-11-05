@@ -9,6 +9,7 @@ export const createQuerySchema = z.object({
   category: z.string().trim().min(1, "Category is required").max(100),
   description: z.string().trim().min(1, "Description is required").max(5000),
   priority: z.enum(queryPriorities, { error: "Priority must be one of: LOW, MEDIUM, HIGH" }).optional(),
+  mediaAssetIds: z.array(z.number().int().positive()).optional().default([]),
 });
 
 export const officerQueryFilterSchema = z.object({

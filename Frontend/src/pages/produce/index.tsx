@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import {
   Bar,
@@ -42,6 +42,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
+import { Upload, ImagePlus, X } from "lucide-react";
+import {
+  uploadMediaFile,
+  acceptForMediaType,
+  maxSizeForMediaType,
+} from "@/lib/skl/media";
 import {
   Select,
   SelectContent,
@@ -400,8 +406,12 @@ export function AddProductPage() {
     price: "",
     location: "",
     description: "",
+    imageUrl: "",
   });
   const [saving, setSaving] = useState(false);
+  const [imageUploading, setImageUploading] = useState<File | null>(null);
+  const [imageProgress, setImageProgress] = useState(0);
+  const productImageInput = useRef<HTMLInputElement>(null);
 
   const publish = async () => {
     if (f.name.trim().length < 1) {
@@ -434,7 +444,17 @@ export function AddProductPage() {
       setSaving(true);
       const grade = f.grade.trim();
       const description = f.description.trim();
-      await apiCreateProduct({
+      const payload: {
+        name: string;
+        category: BackendProductCategory;
+        grade?: string;
+        description?: string;
+        quantity: number;
+        unit: BackendProductUnit;
+        price: number;
+        location: string;
+        imageUrl?: string;
+      } = {
         name: f.name.trim(),
         category: f.category,
         ...(grade ? { grade } : {}),
@@ -443,7 +463,9 @@ export function AddProductPage() {
         unit: f.unit,
         price,
         location: f.location.trim(),
-      });
+        ...(f.imageUrl ? { imageUrl: f.imageUrl } : {}),
+      };
+      await apiCreateProduct(payload);
       toast.success(t("Product listed successfully"));
       navigate({ to: "/app/$", params: { _splat: "seller/inventory" } });
     } catch (err: unknown) {
@@ -451,6 +473,48 @@ export function AddProductPage() {
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleProductImage = async (selected: FileList | null) => {
+    if (!selected || selected.length === 0) return;
+    const file = selected[0];
+    if (!file) return;
+    const maxBytes = maxSizeForMediaType("IMAGE");
+    if (file.size > maxBytes) {
+      toast.error("Image too large. Maximum size is 5MB.");
+      return;
+    }
+    const mime = file.type.toLowerCase();
+    if (!mime.startsWith("image/")) {
+      toast.error("Only image files (JPG, JPEG, PNG, WEBP) are allowed.");
+      return;
+    }
+    setImageUploading(file);
+    setImageProgress(0);
+    try {
+      const asset = await uploadMediaFile({
+        file,
+        mediaType: "IMAGE",
+        purpose: "products",
+        onProgress: (p) => setImageProgress(p),
+      });
+      setF({ ...f, imageUrl: asset.secureUrl });
+      toast.success("Product image uploaded");
+    } catch (err) {
+      toast.error(
+        err instanceof Error
+          ? err.message
+          : "Failed to upload product image. Please try again.",
+      );
+    } finally {
+      setImageUploading(null);
+      setImageProgress(0);
+      if (productImageInput.current) productImageInput.current.value = "";
+    }
+  };
+
+  const pickProductImage = () => {
+    if (productImageInput.current) productImageInput.current.click();
   };
 
   return (
@@ -582,12 +646,61 @@ export function AddProductPage() {
           </div>
         </SectionCard>
         <SectionCard title={t("Listing Photo")}>
-          <div className="grid h-40 place-items-center rounded-xl border border-dashed bg-pale/40 text-sm text-muted-foreground">
-            {t("Image upload arrives in a later module")}
+          <input
+            ref={productImageInput}
+            type="file"
+            accept={acceptForMediaType("IMAGE")}
+            className="hidden"
+            onChange={(e) => handleProductImage(e.target.files)}
+          />
+          <div
+            onClick={pickProductImage}
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={(e) => {
+              e.preventDefault();
+              handleProductImage(e.dataTransfer.files);
+            }}
+            className="grid h-40 place-items-center rounded-xl border border-dashed bg-pale/40 text-sm text-muted-foreground cursor-pointer hover:bg-pale/60"
+          >
+            <Upload className="mb-1 size-5 text-primary" />
+            <div className="mt-2">
+              {f.imageUrl ? (
+                <>
+                  <p className="text-sm font-medium">{t("Product image")}</p>
+                  <img
+                    src={f.imageUrl}
+                    alt="Product"
+                    className="mt-2 h-24 w-full rounded object-cover"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setF({ ...f, imageUrl: "" })}
+                    className="mt-1 text-xs text-destructive hover:underline"
+                  >
+                    {t("Remove")}
+                  </button>
+                </>
+              ) : (
+                <>
+                  <p>{t("Tap to upload a product image")}</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {t("JPG, PNG or WEBP, max 5MB")}
+                  </p>
+                </>
+              )}
+            </div>
+            {imageUploading && (
+              <div className="mt-3 w-full bg-muted/20 rounded-full h-2">
+                <div
+                  className="bg-primary h-full rounded-full transition-all"
+                  style={{ width: `${imageProgress}%` }}
+                />
+              </div>
+            )}
           </div>
           <p className="mt-3 text-xs text-muted-foreground">
             {t(
-              "Marketplace cards keep using local category placeholder images for display only.",
+              "Uploaded images are stored in Cloudinary and shown on marketplace cards.",
             )}
           </p>
         </SectionCard>
